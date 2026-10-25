@@ -1711,61 +1711,68 @@ export default function Home() {
               </button>
             </div>
 
-            <form onSubmit={handleAddPersonnel} style={{ marginTop: "16px" }}>
-              <label>
-                ชื่อบุคลากร (แสดงเป็นป้ายชื่อในตัวเลือก) <span style={{ color: "var(--pink)" }}>*</span>
+            <form onSubmit={handleAddPersonnel} className="modal-form">
+              <div className="modal-field">
+                <label>
+                  <span>ชื่อบุคลากร (แสดงในตัวเลือก)</span>
+                  <span style={{ color: "var(--pink)", fontWeight: "bold" }}>*</span>
+                </label>
                 <input
                   required
                   value={newPersonName}
                   onChange={(e) => setNewPersonName(e.target.value)}
-                  placeholder="เช่น คุณนัสรี ดอเลาะ หรือ นายแพทย์สมบูรณ์"
+                  placeholder="เช่น คุณนัสรี ดอเลาะ หรือ พว.สมศรี ใจดี"
+                  autoFocus
                 />
-              </label>
-              <label>
-                รหัส UDID บุคลากร (ค่า UDID ที่นำไปใช้จริง) <span style={{ color: "var(--pink)" }}>*</span>
+              </div>
+              <div className="modal-field">
+                <label>
+                  <span>รหัส UDID บุคลากร (ค่าที่นำไปใช้จริง)</span>
+                  <span style={{ color: "var(--pink)", fontWeight: "bold" }}>*</span>
+                </label>
                 <input
                   required
                   value={newPersonUdid}
                   onChange={(e) => setNewPersonUdid(e.target.value)}
                   placeholder="เช่น e0209d15534ea0f4 หรือ 1960500123456"
                 />
-                <small style={{ color: "var(--muted)", fontSize: "11px", display: "block", marginTop: "3px" }}>
+                <span className="hint">
                   ระบบจะใช้ค่า UDID นี้ในการส่งบันทึกเวลาและโหลดประวัติ
-                </small>
-              </label>
-              <details style={{ marginTop: "10px", marginBottom: "14px", fontSize: "12px", color: "var(--muted)" }}>
-                <summary style={{ cursor: "pointer", fontWeight: 600 }}>ข้อมูลเพิ่มเติม (รหัสบัตรประชาชน 13 หลัก, แผนก, ฝ่าย)</summary>
-                <div style={{ marginTop: "10px" }}>
-                  <label>
-                    เลขบัตรประชาชน (13 หลัก)
+                </span>
+              </div>
+              <details className="modal-details">
+                <summary>ข้อมูลเพิ่มเติม (เลขบัตรประชาชน, กลุ่มงาน, ฝ่ายงาน)</summary>
+                <div className="modal-details-content">
+                  <div className="modal-field">
+                    <label>เลขประจำตัวประชาชน (13 หลัก)</label>
                     <input
                       value={newPersonNid}
                       onChange={(e) => setNewPersonNid(e.target.value)}
                       placeholder="เช่น 1960500123456 (ถ้าไม่ระบุ จะใช้รหัส UDID)"
                     />
-                  </label>
+                  </div>
                   <div className="form-row">
-                    <label>
-                      แผนก / กลุ่มงาน
+                    <div className="modal-field">
+                      <label>กลุ่มงาน / แผนก</label>
                       <input
                         value={newPersonDept}
                         onChange={(e) => setNewPersonDept(e.target.value)}
                         placeholder="กลุ่มงานการพยาบาล"
                       />
-                    </label>
-                    <label>
-                      ฝ่ายงาน
+                    </div>
+                    <div className="modal-field">
+                      <label>ฝ่ายงาน</label>
                       <input
                         value={newPersonSubdep}
                         onChange={(e) => setNewPersonSubdep(e.target.value)}
                         placeholder="งานการพยาบาลผู้ป่วยนอก"
                       />
-                    </label>
+                    </div>
                   </div>
                 </div>
               </details>
 
-              <div style={{ display: "flex", gap: "10px", marginTop: "18px" }}>
+              <div className="modal-actions">
                 <button type="submit" className="btn btn-primary full">
                   <Check size={16} /> บันทึกเป็นตัวเลือกและเลือกใช้งานทันที
                 </button>
