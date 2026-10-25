@@ -265,6 +265,7 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile>(PRESET_PROFILES.basree);
   const [uid, setUid] = useState(PRESET_PROFILES.basree.udid);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [modalTab, setModalTab] = useState<"add" | "manage">("add");
   const [newPersonName, setNewPersonName] = useState("");
   const [newPersonNid, setNewPersonNid] = useState("");
   const [newPersonUdid, setNewPersonUdid] = useState("");
@@ -424,20 +425,27 @@ export default function Home() {
     notify("success", `เพิ่มตัวเลือกบุคลากร "${created.name}" (UDID: ${created.udid}) เรียบร้อยแล้ว`);
   };
 
-  const handleDeleteProfile = (targetUdid: string) => {
-    if (targetUdid === PRESET_PROFILES.basree.udid || targetUdid === PRESET_PROFILES.piyaha.udid) {
-      notify("info", "ไม่สามารถลบโปรไฟล์เริ่มต้นได้");
+  const handleDeleteProfile = (targetUdid: string, targetName?: string) => {
+    if (profilesList.length <= 1) {
+      notify("error", "ต้องมีบุคลากรในระบบอย่างน้อย 1 คน ไม่สามารถลบทั้งหมดได้");
       return;
     }
+    const target = profilesList.find((p) => p.udid === targetUdid || p.nid === targetUdid);
+    const displayName = targetName || target?.name || targetUdid;
+
     setProfilesList((prev) => {
-      const updated = prev.filter((p) => p.udid !== targetUdid);
+      const updated = prev.filter((p) => p.udid !== targetUdid && p.nid !== targetUdid);
       window.localStorage.setItem("ytime2_profiles_list", JSON.stringify(updated));
       return updated;
     });
-    if (profile.udid === targetUdid) {
-      selectProfile(PRESET_PROFILES.basree);
+
+    if (profile.udid === targetUdid || profile.nid === targetUdid) {
+      const remaining = profilesList.filter((p) => p.udid !== targetUdid && p.nid !== targetUdid);
+      if (remaining.length > 0) {
+        selectProfile(remaining[0]);
+      }
     }
-    notify("info", "ลบข้อมูลบุคลากรเรียบร้อยแล้ว");
+    notify("success", `ลบตัวเลือกบุคลากร "${displayName}" ออกจากระบบเรียบร้อยแล้ว`);
   };
 
   useEffect(() => {
@@ -1033,6 +1041,10 @@ export default function Home() {
                         value={profile.udid}
                         onChange={(e) => {
                           if (e.target.value === "__add_new__") {
+                            setModalTab("add");
+                            setShowAddModal(true);
+                          } else if (e.target.value === "__manage__") {
+                            setModalTab("manage");
                             setShowAddModal(true);
                           } else {
                             applyUdid(e.target.value);
@@ -1056,15 +1068,19 @@ export default function Home() {
                           </option>
                         ))}
                         <option value="__add_new__">+ เพิ่มตัวเลือกบุคลากรใหม่ (ชื่อ & UDID)...</option>
+                        <option value="__manage__">⚙️ จัดการ / ลบตัวเลือกบุคลากร...</option>
                       </select>
                       <button
                         type="button"
                         className="btn btn-outline"
                         style={{ flex: "none", whiteSpace: "nowrap" }}
-                        onClick={() => setShowAddModal(true)}
-                        title="เพิ่มตัวเลือกบุคลากรใหม่ (ชื่อและ UDID)"
+                        onClick={() => {
+                          setModalTab("add");
+                          setShowAddModal(true);
+                        }}
+                        title="เพิ่มหรือจัดการลบตัวเลือกบุคลากร (ชื่อและ UDID)"
                       >
-                        <UserPlus size={16} /> + เพิ่มตัวเลือก
+                        <UserPlus size={16} /> + เพิ่ม / ลบตัวเลือก
                       </button>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "5px", fontSize: "12px", color: "var(--muted)" }}>
@@ -1700,7 +1716,7 @@ export default function Home() {
             <div className="modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Users size={18} color="var(--pink)" />
-                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>เพิ่ม / สลับบุคลากร</h3>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>จัดการตัวเลือกบุคลากร</h3>
               </div>
               <button
                 type="button"
@@ -1712,6 +1728,95 @@ export default function Home() {
               </button>
             </div>
 
+            <div className="modal-tabs">
+              <button
+                type="button"
+                className={`modal-tab-btn ${modalTab === "add" ? "active" : ""}`}
+                onClick={() => setModalTab("add")}
+              >
+                <UserPlus size={14} style={{ marginRight: "5px", verticalAlign: "middle" }} />
+                + เพิ่มตัวเลือกใหม่
+              </button>
+              <button
+                type="button"
+                className={`modal-tab-btn ${modalTab === "manage" ? "active" : ""}`}
+                onClick={() => setModalTab("manage")}
+              >
+                <Users size={14} style={{ marginRight: "5px", verticalAlign: "middle" }} />
+                จัดการ / ลบตัวเลือก (${profilesList.length} คน)
+              </button>
+            </div>
+
+            {modalTab === "manage" ? (
+              <div style={{ marginTop: "16px" }}>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "10px" }}>
+                  รายชื่อตัวเลือกบุคลากรในระบบ (กด &quot;เลือก&quot; เพื่อสลับใช้งาน หรือกด &quot;ลบ&quot; เพื่อนำออกจากตัวเลือก):
+                </div>
+                <div className="personnel-manage-list">
+                  {profilesList.map((p, idx) => {
+                    const isCurrent = profile.udid === p.udid || profile.nid === p.nid;
+                    return (
+                      <div key={p.udid || idx} className="personnel-manage-item">
+                        <div className="personnel-manage-info">
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                            <strong>{p.name}</strong>
+                            {isCurrent && (
+                              <span style={{ fontSize: "10px", background: "#fce7f3", color: "var(--pink-dark)", padding: "1px 6px", borderRadius: "10px", fontWeight: "bold" }}>
+                                กำลังใช้งาน
+                              </span>
+                            )}
+                          </div>
+                          <small>
+                            UDID: <code>{p.udid}</code> {p.nid ? `• NID: ${p.nid}` : ""} {p.subdep ? `• ${p.subdep}` : ""}
+                          </small>
+                        </div>
+                        <div className="personnel-manage-actions">
+                          {!isCurrent && (
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{ minHeight: "30px", padding: "4px 10px", fontSize: "11px" }}
+                              onClick={() => {
+                                selectProfile(p);
+                                setShowAddModal(false);
+                              }}
+                            >
+                              <UserCheck size={13} /> เลือก
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-delete-person"
+                            onClick={() => handleDeleteProfile(p.udid, p.name)}
+                            title={`ลบ ${p.name} ออกจากตัวเลือก`}
+                          >
+                            <Trash2 size={13} /> ลบ
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: "18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: "12px", minHeight: "34px" }}
+                    onClick={() => setModalTab("add")}
+                  >
+                    <UserPlus size={14} /> + เพิ่มตัวเลือกบุคลากรใหม่
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ fontSize: "12px", minHeight: "34px" }}
+                    onClick={() => setShowAddModal(false)}
+                  >
+                    ปิด
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleAddPersonnel} className="modal-form">
               <div className="modal-field">
                 <label>
@@ -1782,6 +1887,7 @@ export default function Home() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}

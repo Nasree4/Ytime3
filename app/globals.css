@@ -201,3 +201,87 @@
   gap: 10px;
   margin-top: 6px;
 }
+
+.modal-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.modal-tab-btn {
+  padding: 7px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: #f1f5f9;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.modal-tab-btn:hover {
+  background: #e2e8f0;
+}
+.modal-tab-btn.active {
+  background: var(--pink);
+  color: #fff;
+}
+.personnel-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.personnel-manage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  gap: 10px;
+}
+.personnel-manage-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.personnel-manage-info strong {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.personnel-manage-info small {
+  font-size: 11.5px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.personnel-manage-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.btn-delete-person {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-delete-person:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
