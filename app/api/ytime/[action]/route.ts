@@ -81,13 +81,27 @@ async function forward(request: NextRequest, action: string, method: "GET" | "PO
       const qr = String(payload.qr || payload.shift || "").trim();
       const lat = String(payload.lat || payload.latitude || "6.222186");
       const lng = String(payload.lng || payload.longitude || "101.808635");
+      const time = String(payload.time || payload.chk_time || payload.workTime || "").trim();
+      const date = String(payload.date || payload.chk_date || payload.workDate || "").trim();
       if (!user) {
         return NextResponse.json({ error: "กรุณาระบุ UDID บุคลากร" }, { status: 400 });
       }
       if (!qr) {
         return NextResponse.json({ error: "กรุณาระบุเวรหรือรหัส QR" }, { status: 400 });
       }
-      body = new TextEncoder().encode(JSON.stringify({ user, qr, lat, lng })).buffer as ArrayBuffer;
+      const outgoing: Record<string, string> = { user, qr, lat, lng };
+      if (time) {
+        outgoing.time = time;
+        outgoing.chk_time = time;
+      }
+      if (date) {
+        outgoing.date = date;
+        outgoing.chk_date = date;
+      }
+      if (time && date) {
+        outgoing.datetime = `${date} ${time}`;
+      }
+      body = new TextEncoder().encode(JSON.stringify(outgoing)).buffer as ArrayBuffer;
       headers.set("Content-Type", "application/json");
     } else {
       body = await request.arrayBuffer();

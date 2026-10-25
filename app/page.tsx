@@ -129,7 +129,7 @@ const PIYAHA_RECORDS: HistoryItem[] = [
   { chk_date: "2026-10-23", chk_time: "08:06:13", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
   { chk_date: "2026-10-23", chk_time: "19:48:32", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
   { chk_date: "2026-10-25", chk_time: "15:57:56", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-25", chk_time: "23:54:00", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
+  { chk_date: "2026-10-25", chk_time: "23:38:28", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
 ];
 
 const shifts: Record<Shift, { label: string; qr: string; title: string }> = {
@@ -274,14 +274,12 @@ export default function Home() {
   const [direction, setDirection] = useState<Direction>("out");
   const [shift, setShift] = useState<Shift>("afternoon");
   const [workDate, setWorkDate] = useState("2026-10-25");
-  const [workTime, setWorkTime] = useState("23:54");
+  const [workTime, setWorkTime] = useState(bangkokNow().time);
   const [camera, setCamera] = useState(false);
   const [location, setLocation] = useState<Location>({ lat: HOSPITAL_COORDS.lat, lng: HOSPITAL_COORDS.lng, accuracy: 10 });
   const [month, setMonth] = useState(() => new Date(2026, 9, 1));
   const [records, setRecords] = useState<HistoryItem[]>([]);
-  const [timeOverrides, setTimeOverrides] = useState<Record<string, string>>({
-    "2026-10-25_working2_OUT": "23:54:00",
-  });
+  const [timeOverrides, setTimeOverrides] = useState<Record<string, string>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
@@ -502,7 +500,7 @@ export default function Home() {
         console.warn(e);
       }
     } else {
-      window.localStorage.setItem("ytime2_time_overrides", JSON.stringify({ "2026-10-25_working2_OUT": "23:54:00" }));
+      window.localStorage.setItem("ytime2_time_overrides", JSON.stringify({}));
     }
 
     loadHistory(activeUdid, activeProfile);
@@ -523,8 +521,9 @@ export default function Home() {
   const updateTimeOverride = (date: string, shiftQr: string, status: "IN" | "OUT", newTime: string) => {
     const key = `${date}_${shiftQr}_${status}`;
     const userKey = `${profile.nid}_${key}`;
+    const udidKey = `${profile.udid}_${key}`;
     const formatted = newTime.trim().length === 5 ? `${newTime.trim()}:00` : newTime.trim();
-    const next = { ...timeOverrides, [key]: formatted, [userKey]: formatted };
+    const next = { ...timeOverrides, [key]: formatted, [userKey]: formatted, [udidKey]: formatted };
     setTimeOverrides(next);
     window.localStorage.setItem("ytime2_time_overrides", JSON.stringify(next));
     notify("success", `แก้ไขเวลา${status === "IN" ? "เข้า" : "ออก"} วันที่ ${date} เป็น ${formatted} น. เรียบร้อยแล้ว`);
@@ -665,10 +664,15 @@ export default function Home() {
         qr: qrCode,
         lat: String(location.lat),
         lng: String(location.lng),
+        time: timeFormatted,
+        date: workDate,
+        chk_time: timeFormatted,
+        chk_date: workDate,
+        datetime: `${workDate} ${timeFormatted}`,
       });
       const result = parseCheckResult(response);
       notify("success", `บันทึกเวลา${direction === "in" ? "เข้า" : "ออก"} ${timeFormatted} น. เรียบร้อยแล้ว`);
-      await loadHistory(uid.trim());
+      await loadHistory(uid.trim(), profile);
     } catch (error) {
       notify("success", `บันทึกเวลา${direction === "in" ? "เข้า" : "ออก"} เป็น ${timeFormatted} น. เรียบร้อยแล้ว`);
       await loadHistory(uid.trim());
@@ -719,7 +723,8 @@ export default function Home() {
       const key = `${r.chk_date}_${r.chk_cet}_${r.chk_status}`;
       existingKeys.add(key);
       const userKey = `${profile.nid}_${key}`;
-      const overrideVal = timeOverrides[userKey] || timeOverrides[key];
+      const udidKey = `${profile.udid}_${key}`;
+      const overrideVal = timeOverrides[userKey] || timeOverrides[udidKey] || timeOverrides[key];
       if (overrideVal) {
         return { ...r, chk_time: overrideVal };
       }
@@ -1112,12 +1117,8 @@ export default function Home() {
                     <label>เวลา<input required type="time" value={workTime} onChange={(e) => setWorkTime(e.target.value)} /></label>
                   </div>
                   <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
-                    <button className="link-btn time-reset" type="button" onClick={() => setWorkTime("23:54")}>
-                      ตั้งเป็น 23:54 น. (11:54 PM)
-                    </button>
-                    <span>•</span>
                     <button className="link-btn time-reset" type="button" onClick={() => { const now = bangkokNow(); setWorkDate(now.date); setWorkTime(now.time); }}>
-                      ใช้วันเวลาปัจจุบัน
+                      ใช้วันและเวลาปัจจุบัน
                     </button>
                   </div>
 
@@ -1140,7 +1141,7 @@ export default function Home() {
 
                   <button className="btn btn-primary full" disabled={!uid.trim() || busy === "check"}>
                     {busy === "check" ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
-                    {busy === "check" ? "กำลังบันทึกเวลา..." : `บันทึกเวลา${direction === "in" ? "เข้า" : "ออก"}เป็น ${workTime} น.`}
+                    {busy === "check" ? "กำลังบันทึกเวลา..." : `บันทึกเวลา${direction === "in" ? "เข้า (IN)" : "ออก (OUT)"}`}
                   </button>
 
                   <button
@@ -1154,7 +1155,7 @@ export default function Home() {
                       updateTimeOverride(workDate, shifts[shift].qr, dirUpper, formatted);
                     }}
                   >
-                    <Pencil size={15} /> บันทึกปรับแก้เวลา{direction === "in" ? "เข้า" : "ออก"}เป็น {workTime} น. โดยตรง
+                    <Pencil size={15} /> บันทึกปรับแก้เวลา{direction === "in" ? "เข้า" : "ออก"}โดยตรง
                   </button>
                 </form>
 
@@ -1363,7 +1364,7 @@ export default function Home() {
                                     title="คลิกเพื่อแก้ไขเวลาออก"
                                     onClick={() => {
                                       setEditingKey(outKey);
-                                      setEditingValue(row.time_out !== "-" ? row.time_out.slice(0, 5) : "23:54");
+                                      setEditingValue(row.time_out !== "-" ? row.time_out.slice(0, 5) : bangkokNow().time);
                                     }}
                                   >
                                     {row.time_out !== "-" ? (
