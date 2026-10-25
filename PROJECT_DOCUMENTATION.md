@@ -84,7 +84,7 @@
      - `4c3dd3d`: style: fix modal layout, labels, and input spacing cleanly
      - `4ae8bca`: feat: use selected time, remove 23.54 from buttons, and ensure robust attendance edit overrides
      - `09d9b76`: docs: add comprehensive project documentation and progress log
-     - (ล่าสุด): feat: add personnel option deletion and management modal with docs
+     - `be8b7de`: feat: add personnel option deletion and management modal with docs
 
 ---
 
