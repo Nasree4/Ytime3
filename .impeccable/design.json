@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "colors": {
+    "ink": "#202b3b",
+    "muted": "#718092",
+    "brand": "#e91367",
+    "brandDark": "#c60d56",
+    "background": "#f6f8fb",
+    "surface": "#ffffff"
+  },
+  "fontFamily": "IBM Plex Sans Thai, Tahoma, sans-serif",
+  "radius": { "panel": 14, "control": 9 }
+}
