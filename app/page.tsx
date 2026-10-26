@@ -41,7 +41,7 @@ import {
   X,
 } from "lucide-react";
 import QRCode from "qrcode";
-import { buildReportRows, parseCheckResult, profileId, scopedKey, ownsKey, type HistoryItem, type CustomReportRow, type ReportRowItem, type RowMeta } from "@/lib/attendance";
+import { buildReportRows, parseCheckResult, findIncompleteShifts, dueReminders, historyHasCheck, shiftDescription, profileId, scopedKey, ownsKey, type HistoryItem, type IncompleteShift, type CustomReportRow, type ReportRowItem, type RowMeta } from "@/lib/attendance";
 
 type Page = "home" | "check" | "calendar" | "report" | "news" | "map" | "appeal" | "qrgen" | "profile";
 
@@ -250,6 +250,15 @@ export default function Home() {
   const [historyError, setHistoryError] = useState("");
   const [storageReady, setStorageReady] = useState(false);
   const crudDialog = useRef<HTMLDialogElement>(null);
+  const [clock, setClock] = useState(() => bangkokNow());
+  const [lastCheck, setLastCheck] = useState<{ status: "confirmed" | "unknown"; message: string; date: string; time: string; shift: string; udid: string } | null>(null);
+  const [remindersOn, setRemindersOn] = useState(false);
+  const notifiedReminders = useRef(new Set<string>());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(bangkokNow()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (showCrudModal) crudDialog.current?.showModal();
@@ -815,7 +824,8 @@ export default function Home() {
     setSendingCheck(true);
     setFlash(null);
     const historyVersion = historyRequest.current;
-
+    const sentAt = bangkokNow();
+    setLastCheck(null);
 
     try {
       const qrCode = qr.trim() || shifts[shift].qr;
@@ -829,10 +839,13 @@ export default function Home() {
       if (historyVersion !== historyRequest.current) return;
       const result = parseCheckResult(response);
       notify(result.status === "confirmed" ? "success" : "error", result.message);
+      setLastCheck({ ...result, ...sentAt, shift: qrCode, udid: uid.trim() });
       await loadHistory(uid.trim(), profile);
     } catch (error) {
       if (historyVersion !== historyRequest.current) return;
-      notify("error", "ยังยืนยันการลงเวลาไม่ได้: " + toError(error) + " กรุณาตรวจประวัติก่อนส่งซ้ำ");
+      const message = "ยังยืนยันการลงเวลาไม่ได้: " + toError(error) + " กรุณาตรวจประวัติก่อนส่งซ้ำ";
+      notify("error", message);
+      setLastCheck({ status: "unknown", message, ...sentAt, shift: qr.trim() || shifts[shift].qr, udid: uid.trim() });
       await loadHistory(uid.trim(), profile);
     } finally {
       setSendingCheck(false);
@@ -876,8 +889,45 @@ export default function Home() {
     }
   }
 
-  const todayIso = bangkokNow().date;
+  function openAppealFor(item: IncompleteShift) {
+    const missingLabel = item.missing === "IN" ? "เข้า" : "ออก";
+    const recordedLabel = item.missing === "IN" ? "ออก" : "เข้า";
+    setSubject(`ขอแก้ไขการลงเวลา${missingLabel} ${shiftDescription(item.shift)} วันที่ ${item.date}`);
+    setDetail(`ระบบมีบันทึกเวลา${recordedLabel} ${item.recordedTime.slice(0, 5)} น. แต่ไม่มีบันทึกเวลา${missingLabel}\nเวลา${missingLabel}ที่ปฏิบัติงานจริง: \nเหตุผล: `);
+    setFrom(item.date);
+    setTo(item.date);
+    go("appeal");
+  }
+
+  async function toggleReminders() {
+    if (remindersOn) {
+      setRemindersOn(false);
+      return;
+    }
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    setRemindersOn(true);
+    notify("info", typeof Notification !== "undefined" && Notification.permission === "granted"
+      ? "เปิดการแจ้งเตือนแล้ว ระบบจะเตือนก่อนเข้า/ออกเวร 15 นาทีขณะเปิดหน้านี้ไว้"
+      : "เปิดการแจ้งเตือนในหน้าเว็บแล้ว (เบราว์เซอร์ไม่อนุญาตการแจ้งเตือนแบบป๊อปอัป)");
+  }
+
+  const todayIso = clock.date;
   const todayRecords = records.filter((r) => r.chk_date === todayIso);
+  const incompleteShifts = useMemo(() => findIncompleteShifts(records, clock), [records, clock]);
+  const reminders = useMemo(() => dueReminders(records, clock), [records, clock]);
+  const lastCheckInHistory = lastCheck && lastCheck.udid === uid.trim() ? historyHasCheck(records, lastCheck.date, lastCheck.shift, lastCheck.time) : false;
+
+  useEffect(() => {
+    if (!remindersOn || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    for (const reminder of reminders) {
+      const key = `${profile.udid}_${reminder.key}`;
+      if (notifiedReminders.current.has(key)) continue;
+      notifiedReminders.current.add(key);
+      new Notification("YTime2 แจ้งเตือนลงเวลา", { body: `${profile.name}: ${reminder.message}`, tag: key });
+    }
+  }, [reminders, remindersOn, profile.udid, profile.name]);
   const days = Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => i + 1);
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const map = `https://www.openstreetmap.org/export/embed.html?bbox=${location.lng - 0.01}%2C${location.lat - 0.007}%2C${location.lng + 0.01}%2C${location.lat + 0.007}&layer=mapnik&marker=${location.lat}%2C${location.lng}`;
@@ -886,6 +936,31 @@ export default function Home() {
   const reportRows = useMemo(() => buildReportRows(records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys),
     [records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys]);
   const deletedCount = deletedRowKeys.filter((key) => ownsKey(profile, key)).length;
+
+  const renderIncompleteShifts = () => (
+    <div className="panel" style={{ marginBottom: "16px", padding: "14px 16px", borderColor: incompleteShifts.length ? "#fcd34d" : undefined, background: incompleteShifts.length ? "#fffbeb" : undefined }}>
+      <strong style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
+        <FileText size={16} /> รายการลงเวลาไม่ครบ (31 วันล่าสุด)
+      </strong>
+      {incompleteShifts.length === 0 ? (
+        <p style={{ margin: "6px 0 0", fontSize: "13px", color: "var(--muted)" }}>ไม่พบเวรที่ลงเวลาไม่ครบในประวัติของระบบ</p>
+      ) : (
+        <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: "6px" }}>
+          {incompleteShifts.map((item) => (
+            <li key={`${item.date}_${item.shift}_${item.missing}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "13px" }}>
+              <span>
+                {dateLabel.format(new Date(`${item.date}T12:00:00`))} · {shiftDescription(item.shift)} · ไม่มีเวลา<strong>{item.missing === "IN" ? "เข้า" : "ออก"}</strong>
+                <span style={{ color: "var(--muted)" }}> (มีเวลา{item.missing === "IN" ? "ออก" : "เข้า"} {item.recordedTime.slice(0, 5)} น.)</span>
+              </span>
+              <button type="button" className="btn btn-outline" style={{ fontSize: "12px", padding: "4px 10px" }} onClick={() => openAppealFor(item)}>
+                <FileText size={14} /> ยื่นคำร้องแก้ไข
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 
   const renderPersonnelBar = () => (
     <div className="personnel-bar">
@@ -1081,6 +1156,29 @@ export default function Home() {
             <>
               <Heading icon={<Clock3 />} title="ลงเวลาเข้า–ออก" detail="ระบุเวรและส่งข้อมูลลงเวลาไปยังระบบ รพ.เจาะไอร้อง" />
               {renderPersonnelBar()}
+              <div className="no-print" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+                <button type="button" className={`btn ${remindersOn ? "btn-primary" : "btn-outline"}`} onClick={toggleReminders}>
+                  <Bell size={15} /> {remindersOn ? "ปิดการแจ้งเตือนเข้า/ออกเวร" : "เปิดการแจ้งเตือนเข้า/ออกเวร"}
+                </button>
+                <small style={{ color: "var(--muted)" }}>เตือนล่วงหน้า 15 นาที (เช้า 08:00–16:00, บ่าย 16:00–24:00, ดึก 00:00–08:00) ขณะเปิดหน้าเว็บนี้ไว้</small>
+              </div>
+              {reminders.map((reminder) => (
+                <div key={reminder.key} role="alert" style={{ marginBottom: "10px", padding: "10px 14px", background: "#fff7ed", border: "1px solid #fdba74", borderRadius: "9px", fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Bell size={15} color="#c2410c" /> <span>{reminder.message}</span>
+                </div>
+              ))}
+              {lastCheck && lastCheck.udid === uid.trim() && (
+                <div role="status" style={{ marginBottom: "12px", padding: "12px 14px", borderRadius: "9px", fontSize: "13px",
+                  background: lastCheck.status === "confirmed" ? "#f0fdf4" : "#fef2f2",
+                  border: `1px solid ${lastCheck.status === "confirmed" ? "#86efac" : "#fca5a5"}` }}>
+                  <strong>{lastCheck.status === "confirmed" ? "✓ ระบบยืนยันการลงเวลาแล้ว" : "✗ ระบบยังไม่ยืนยันการลงเวลา"}</strong>
+                  <div style={{ marginTop: "3px" }}>{lastCheck.message} · ส่งเมื่อ {lastCheck.time} น. ({shiftDescription(lastCheck.shift)})</div>
+                  <div style={{ marginTop: "3px", color: "var(--muted)" }}>
+                    {busy === "records" ? "กำลังตรวจประวัติจากระบบ..." : lastCheckInHistory ? "พบรายการนี้ในประวัติของระบบแล้ว" : "ยังไม่พบรายการนี้ในประวัติของระบบ กรุณาตรวจประวัติก่อนส่งซ้ำ"}
+                  </div>
+                </div>
+              )}
+              {renderIncompleteShifts()}
               <div className="two-col">
                 <form className="panel form attendance-form" onSubmit={check}>
                   <h2>ข้อมูลการลงเวลา</h2>
@@ -1751,6 +1849,7 @@ export default function Home() {
           {page === "appeal" && (
             <>
               <Heading icon={<FileText />} title="ส่งคำร้อง" detail="แจ้งเรื่องและแนบเอกสารไปยังระบบ รพ.เจาะไอร้อง" />
+              {renderIncompleteShifts()}
               <div className="two-col">
                 <form className="panel form" onSubmit={appeal}>
                   <h2>รายละเอียดคำร้อง</h2>

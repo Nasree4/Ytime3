@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReportRows, parseCheckResult, scopedKey, ownsKey } from '../lib/attendance.ts';
+import { buildReportRows, parseCheckResult, scopedKey, ownsKey, findIncompleteShifts, dueReminders, historyHasCheck } from '../lib/attendance.ts';
 
 const alice = { nid: 'person-a', udid: 'device-a' };
 const bob = { nid: 'person-b', udid: 'device-b' };
@@ -69,4 +69,39 @@ test('API history order does not split paired shifts', () => {
   const result = rows(alice, {}, [], {}, [], '2026-10', [...records].reverse());
   assert.equal(result.length, 1);
   assert.equal(result[0].time_out, '16:00:00');
+});
+
+const at = (date, time, status, cet = 'working1') => ({ chk_date: date, chk_time: time, chk_status: status, chk_cet: cet });
+
+test('incomplete shifts list missing IN/OUT but not a shift still in progress', () => {
+  const history = [
+    at('2026-10-20', '08:00:00', 'IN'), at('2026-10-20', '16:01:00', 'OUT'),
+    at('2026-10-21', '08:02:00', 'IN'),
+    at('2026-10-22', '16:05:00', 'OUT'),
+    at('2026-10-23', '16:00:00', 'IN', 'working2'), at('2026-10-24', '00:10:00', 'OUT', 'working2'),
+    at('2026-10-27', '08:00:00', 'IN'),
+  ];
+  const result = findIncompleteShifts(history, { date: '2026-10-27', time: '10:00' });
+  assert.deepEqual(result.map((r) => `${r.date}_${r.missing}`), ['2026-10-22_IN', '2026-10-21_OUT']);
+  assert.equal(findIncompleteShifts(history, { date: '2026-10-27', time: '17:30' })[0].date, '2026-10-27');
+  assert.equal(findIncompleteShifts(history, { date: '2026-12-27', time: '10:00' }).length, 0);
+});
+
+test('reminders fire before a shift starts and around its end only when needed', () => {
+  assert.deepEqual(dueReminders([], { date: '2026-10-27', time: '07:50' }).map((r) => r.key), ['2026-10-27_working1_IN']);
+  assert.equal(dueReminders([at('2026-10-27', '07:48:00', 'IN')], { date: '2026-10-27', time: '07:50' }).length, 0);
+  assert.equal(dueReminders([], { date: '2026-10-27', time: '12:00' }).length, 0);
+  const onShift = [at('2026-10-27', '08:00:00', 'IN')];
+  assert.deepEqual(dueReminders(onShift, { date: '2026-10-27', time: '16:10' }).map((r) => r.key), ['2026-10-27_working1_OUT', '2026-10-27_working2_IN']);
+  assert.equal(dueReminders([...onShift, at('2026-10-27', '16:05:00', 'OUT')], { date: '2026-10-27', time: '16:10' }).some((r) => r.status === 'OUT'), false);
+  assert.deepEqual(dueReminders([], { date: '2026-10-27', time: '23:50' }).map((r) => r.key), ['2026-10-28_working3_IN']);
+  const afternoon = [at('2026-10-27', '16:00:00', 'IN', 'working2')];
+  assert.deepEqual(dueReminders(afternoon, { date: '2026-10-28', time: '00:20' }).map((r) => r.key), ['2026-10-27_working2_OUT', '2026-10-28_working3_IN']);
+});
+
+test('check confirmation looks for a matching stamp in fresh history', () => {
+  const history = [at('2026-10-27', '08:01:30', 'IN')];
+  assert.equal(historyHasCheck(history, '2026-10-27', 'working1', '08:02'), true);
+  assert.equal(historyHasCheck(history, '2026-10-27', 'working1', '09:00'), false);
+  assert.equal(historyHasCheck(history, '2026-10-27', 'working2', '08:02'), false);
 });

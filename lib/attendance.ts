@@ -76,6 +76,88 @@ export function shiftDescription(shift: string) {
   return ({ working1: "ลงชื่อปฏิบัติงานเวรเช้า", working2: "ลงชื่อปฏิบัติงานเวรบ่าย", working3: "ลงชื่อปฏิบัติงานเวรดึก", time2hr: "ลงชื่อขออนุญาต 2 ชม." } as Record<string, string>)[shift] || shift;
 }
 
+export type ClockNow = { date: string; time: string };
+export type IncompleteShift = { date: string; shift: string; missing: "IN" | "OUT"; recordedTime: string };
+export type ShiftReminder = { key: string; date: string; shift: string; status: "IN" | "OUT"; at: string; message: string };
+
+// Scheduled hours used only for reminders and "still on shift" checks; never sent to the server.
+export const SHIFT_HOURS: Record<string, { start: string; end: string }> = {
+  working1: { start: "08:00", end: "16:00" },
+  working2: { start: "16:00", end: "24:00" },
+  working3: { start: "00:00", end: "08:00" },
+};
+
+const toMinutes = (time: string) => {
+  const [h, m] = time.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+const dayIndex = (date: string) => Math.round(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10)) / 86400000);
+const absMinutes = (date: string, time: string) => dayIndex(date) * 1440 + toMinutes(time);
+const addDays = (date: string, days: number) => new Date((dayIndex(date) + days) * 86400000).toISOString().slice(0, 10);
+const shiftEndAbs = (date: string, shift: string) => {
+  const hours = SHIFT_HOURS[shift];
+  return hours ? absMinutes(date, hours.end) : absMinutes(date, "24:00");
+};
+// An afternoon shift's OUT may be stamped just after midnight on the following date.
+const LATE_OUT_LIMIT = "04:00";
+
+type ShiftPair = { date: string; shift: string; in?: string; out?: string };
+function pairShifts(records: HistoryItem[]): ShiftPair[] {
+  const pairs: ShiftPair[] = [];
+  const sorted = [...records].filter((r) => r.chk_status === "IN" || r.chk_status === "OUT")
+    .sort((a, b) => `${a.chk_date} ${a.chk_time}`.localeCompare(`${b.chk_date} ${b.chk_time}`));
+  for (const r of sorted) {
+    if (r.chk_status === "IN") { pairs.push({ date: r.chk_date, shift: r.chk_cet, in: r.chk_time }); continue; }
+    const open = pairs.findLast((p) => p.shift === r.chk_cet && p.in && !p.out &&
+      (p.date === r.chk_date || (p.date === addDays(r.chk_date, -1) && r.chk_time < LATE_OUT_LIMIT)));
+    if (open) open.out = r.chk_time;
+    else pairs.push({ date: r.chk_date, shift: r.chk_cet, out: r.chk_time });
+  }
+  return pairs;
+}
+
+/** Shifts in the server history that have only an IN or only an OUT, most recent first. */
+export function findIncompleteShifts(records: HistoryItem[], now: ClockNow, days = 31, graceMinutes = 60): IncompleteShift[] {
+  const nowAbs = absMinutes(now.date, now.time);
+  const oldest = addDays(now.date, -days);
+  return pairShifts(records)
+    .filter((p) => p.date >= oldest && p.date <= now.date && (!p.in || !p.out))
+    // A shift still in progress (or just ended) is not missing its OUT yet.
+    .filter((p) => p.out || nowAbs >= shiftEndAbs(p.date, p.shift) + graceMinutes)
+    .map((p) => ({ date: p.date, shift: p.shift, missing: p.in ? "OUT" as const : "IN" as const, recordedTime: (p.in || p.out) as string }))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.shift.localeCompare(b.shift));
+}
+
+/** Reminders due now: shortly before a shift starts without an IN, or around its end with an open IN. */
+export function dueReminders(records: HistoryItem[], now: ClockNow, leadMinutes = 15, graceMinutes = 60): ShiftReminder[] {
+  const nowAbs = absMinutes(now.date, now.time);
+  const pairs = pairShifts(records);
+  const reminders: ShiftReminder[] = [];
+  for (const [shift, hours] of Object.entries(SHIFT_HOURS)) {
+    const label = shiftDescription(shift).replace("ลงชื่อปฏิบัติงาน", "");
+    for (const offset of [-1, 0, 1]) {
+      const date = addDays(now.date, offset);
+      const start = absMinutes(date, hours.start);
+      const end = shiftEndAbs(date, shift);
+      const pair = pairs.find((p) => p.date === date && p.shift === shift && p.in);
+      if (!pair && nowAbs >= start - leadMinutes && nowAbs < start + 30) {
+        reminders.push({ key: `${date}_${shift}_IN`, date, shift, status: "IN", at: hours.start,
+          message: `${nowAbs < start ? "ใกล้ถึง" : "ถึง"}เวลาเข้า${label} (${hours.start} น.) ยังไม่ได้ลงเวลาเข้า` });
+      }
+      if (pair && !pair.out && nowAbs >= end - leadMinutes && nowAbs < end + graceMinutes) {
+        reminders.push({ key: `${date}_${shift}_OUT`, date, shift, status: "OUT", at: hours.end,
+          message: `${nowAbs < end ? "ใกล้ถึง" : "ถึง"}เวลาออก${label} (${hours.end} น.) ยังไม่ได้ลงเวลาออก` });
+      }
+    }
+  }
+  return reminders;
+}
+
+/** Whether the server history now holds a stamp for this shift at or after the time the check was sent. */
+export function historyHasCheck(records: HistoryItem[], date: string, shift: string, sentAt: string, toleranceMinutes = 2) {
+  return records.some((r) => r.chk_date === date && r.chk_cet === shift && toMinutes(r.chk_time) >= toMinutes(sentAt) - toleranceMinutes);
+}
+
 export function buildReportRows(
   records: HistoryItem[], profile: ProfileIdentity, month: string,
   overrides: Record<string, string>, custom: CustomReportRow[],
