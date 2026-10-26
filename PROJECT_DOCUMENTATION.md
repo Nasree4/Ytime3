@@ -62,4 +62,4 @@
   - `4ae8bca`: feat: use selected time, remove 23.54 from buttons, and ensure robust attendance edit overrides
   - `09d9b76`: docs: add comprehensive project documentation and progress log
   - `be8b7de`: feat: add personnel option deletion and management modal with docs
-  - (ล่าสุด): feat: add full CRUD system for attendance report and staff dropdown selector
+  - `af7dae8`: feat: add full CRUD system for attendance report and staff dropdown selector
