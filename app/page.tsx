@@ -41,7 +41,7 @@ import {
   X,
 } from "lucide-react";
 import QRCode from "qrcode";
-import { buildReportRows, parseCheckResult, shiftDescription, profileId, scopedKey, ownsKey, type HistoryItem, type CustomReportRow, type ReportRowItem, type RowMeta } from "@/lib/attendance";
+import { buildReportRows, parseCheckResult, profileId, scopedKey, ownsKey, type HistoryItem, type CustomReportRow, type ReportRowItem, type RowMeta } from "@/lib/attendance";
 
 type Page = "home" | "check" | "calendar" | "report" | "news" | "map" | "appeal" | "qrgen" | "profile";
 
@@ -673,20 +673,11 @@ export default function Home() {
   const updateTimeOverride = (date: string, shiftQr: string, status: "IN" | "OUT", newTime: string) => {
     if (!storageReady || !profile.udid.trim() || !date || !newTime.trim()) return;
     const key = scopedKey(profile, date + "_" + shiftQr + "_" + status);
-    const userKey = profile.nid ? `${profile.nid}_${date}_${shiftQr}_${status}` : "";
-    const udidKey = profile.udid ? `${profile.udid}_${date}_${shiftQr}_${status}` : "";
-    const legacyKey = `${date}_${shiftQr}_${status}`;
     const formatted = newTime.trim().length === 5 ? newTime.trim() + ":00" : newTime.trim();
-    const next = {
-      ...timeOverrides,
-      [key]: formatted,
-      ...(userKey ? { [userKey]: formatted } : {}),
-      ...(udidKey ? { [udidKey]: formatted } : {}),
-      [legacyKey]: formatted,
-    };
+    const next = { ...timeOverrides, [key]: formatted };
     window.localStorage.setItem("ytime2_time_overrides", JSON.stringify(next));
     setTimeOverrides(next);
-    notify("success", `บันทึกเวลา${status === "IN" ? "เข้า" : "ออก"} วันที่ ${date} เป็น ${formatted} น. เรียบร้อยแล้ว`);
+    notify("success", "บันทึกเวลาปรับแก้เฉพาะเบราว์เซอร์นี้แล้ว ข้อมูลโรงพยาบาลไม่เปลี่ยนแปลง");
   };
 
   const updateRowTime = (row: ReportRowItem, field: "time_in" | "time_out", value: string) => {
@@ -825,35 +816,23 @@ export default function Home() {
     setFlash(null);
     const historyVersion = historyRequest.current;
 
-    const timeFormatted = workTime.trim().length === 5 ? `${workTime.trim()}:00` : workTime.trim();
-    const dirUpper = direction === "in" ? "IN" : "OUT";
-    const dirLabel = direction === "in" ? "เข้า" : "ออก";
-    const shiftQr = shifts[shift].qr;
-
-    // 1. บันทึกเวลาที่เลือกในช่องฟอร์มลงใน timeOverrides ทันที เพื่อให้แสดงผลตรงกับช่องฟอร์ม
-    updateTimeOverride(workDate, shiftQr, dirUpper, timeFormatted);
 
     try {
-      const qrCode = qr.trim() || shiftQr;
-      await postApi<unknown>("check", {
+      const qrCode = qr.trim() || shifts[shift].qr;
+      const response = await postApi<unknown>("check", {
         user: uid.trim(),
         qr: qrCode,
         lat: String(location.lat),
         lng: String(location.lng),
-        time: timeFormatted,
-        date: workDate,
-        chk_time: timeFormatted,
-        chk_date: workDate,
-        datetime: `${workDate} ${timeFormatted}`,
-        status: dirUpper,
-        chk_status: dirUpper,
+
       });
       if (historyVersion !== historyRequest.current) return;
-      notify("success", `บันทึกเวลา${dirLabel} (${timeFormatted} น.) เรียบร้อยแล้ว`);
+      const result = parseCheckResult(response);
+      notify(result.status === "confirmed" ? "success" : "error", result.message);
       await loadHistory(uid.trim(), profile);
-    } catch {
+    } catch (error) {
       if (historyVersion !== historyRequest.current) return;
-      notify("success", `บันทึกเวลา${dirLabel} (${timeFormatted} น.) เรียบร้อยแล้ว`);
+      notify("error", "ยังยืนยันการลงเวลาไม่ได้: " + toError(error) + " กรุณาตรวจประวัติก่อนส่งซ้ำ");
       await loadHistory(uid.trim(), profile);
     } finally {
       setSendingCheck(false);
@@ -897,72 +876,15 @@ export default function Home() {
     }
   }
 
-  const effectiveRecords = useMemo(() => {
-    const existing = new Set<string>();
-    const updated = records.map((r) => {
-      const legacyKey = `${r.chk_date}_${r.chk_cet}_${r.chk_status}`;
-      existing.add(legacyKey);
-      const overrideVal =
-        timeOverrides[scopedKey(profile, legacyKey)] ||
-        (profile.nid ? timeOverrides[`${profile.nid}_${legacyKey}`] : undefined) ||
-        (profile.udid ? timeOverrides[`${profile.udid}_${legacyKey}`] : undefined) ||
-        timeOverrides[legacyKey];
-      if (overrideVal) {
-        return { ...r, chk_time: overrideVal };
-      }
-      return r;
-    });
-
-    for (const key of Object.keys(timeOverrides)) {
-      if (!ownsKey(profile, key)) continue;
-      const raw = key.startsWith("[")
-        ? (() => {
-            try {
-              const [id, k] = JSON.parse(key);
-              return id && [profile.nid, profile.udid].includes(id) ? k : null;
-            } catch {
-              return null;
-            }
-          })()
-        : key.startsWith(`${profile.nid}_`)
-        ? key.slice(`${profile.nid}_`.length)
-        : key.startsWith(`${profile.udid}_`)
-        ? key.slice(`${profile.udid}_`.length)
-        : key;
-
-      if (!raw) continue;
-      const match = raw.match(/^(\d{4}-\d{2}-\d{2})_([^_]+)_(IN|OUT)$/);
-      if (!match) continue;
-      const [, date, shiftKey, status] = match;
-      const rowKey = `${date}_${shiftKey}_${status}`;
-      if (!existing.has(rowKey)) {
-        existing.add(rowKey);
-        const val = timeOverrides[key];
-        updated.push({
-          chk_date: date,
-          chk_time: val,
-          chk_status: status,
-          chk_cet: shiftKey,
-          cet_name: "ลงชื่อปฏิบัติงาน",
-          cet_description: shiftDescription(shiftKey),
-        });
-      }
-    }
-
-    return updated;
-  }, [records, profile, timeOverrides]);
-
   const todayIso = bangkokNow().date;
-  const todayRecords = useMemo(() => {
-    return effectiveRecords.filter((r) => r.chk_date === todayIso || r.chk_date === workDate);
-  }, [effectiveRecords, todayIso, workDate]);
+  const todayRecords = records.filter((r) => r.chk_date === todayIso);
   const days = Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => i + 1);
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const map = `https://www.openstreetmap.org/export/embed.html?bbox=${location.lng - 0.01}%2C${location.lat - 0.007}%2C${location.lng + 0.01}%2C${location.lat + 0.007}&layer=mapnik&marker=${location.lat}%2C${location.lng}`;
 
   const currentMonthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-  const reportRows = useMemo(() => buildReportRows(effectiveRecords, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys),
-    [effectiveRecords, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys]);
+  const reportRows = useMemo(() => buildReportRows(records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys),
+    [records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys]);
   const deletedCount = deletedRowKeys.filter((key) => ownsKey(profile, key)).length;
 
   const renderPersonnelBar = () => (
@@ -1162,7 +1084,7 @@ export default function Home() {
               <div className="two-col">
                 <form className="panel form attendance-form" onSubmit={check}>
                   <h2>ข้อมูลการลงเวลา</h2>
-                  <p className="subtext">ปรับแก้วันที่และเวลาออกได้ตามจริง ระบบจะบันทึกตรงตามที่ระบุในช่องฟอร์มนี้</p>
+                  <p className="subtext">ปุ่มส่งลงเวลาใช้เวลาปัจจุบันของเซิร์ฟเวอร์ ประเภทเข้า/ออกยึดตามคำตอบของระบบ ส่วนวันที่และเวลาในฟอร์มใช้ปรับรายงานในเบราว์เซอร์เท่านั้น</p>
 
                   {todayRecords.length > 0 && (
                     <div style={{ marginBottom: "16px", padding: "12px 14px", background: "#f0f7ff", border: "1px solid #c7e0ff", borderRadius: "9px", fontSize: "13px" }}>
@@ -1325,7 +1247,7 @@ export default function Home() {
                       updateTimeOverride(workDate, shifts[shift].qr, dirUpper, formatted);
                     }}
                   >
-                    <Pencil size={15} /> บันทึกปรับแก้เวลา{direction === "in" ? "เข้า" : "ออก"}โดยตรง ({workTime} น.)
+                    <Pencil size={15} /> ปรับเวลา{direction === "in" ? "เข้า" : "ออก"}ในรายงานเฉพาะเบราว์เซอร์นี้
                   </button>
                 </form>
 
