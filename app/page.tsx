@@ -24,8 +24,10 @@ import {
   Navigation,
   Paperclip,
   Pencil,
+  Plus,
   Printer,
   QrCode,
+  RotateCcw,
   RefreshCw,
   Send,
   Settings,
@@ -41,6 +43,34 @@ import {
 import QRCode from "qrcode";
 
 type Page = "home" | "check" | "calendar" | "report" | "news" | "map" | "appeal" | "qrgen" | "profile";
+
+export interface CustomReportRow {
+  id: string;
+  profileId: string;
+  date: string;
+  shift: string;
+  cet_name: string;
+  cet_desc: string;
+  time_in: string;
+  time_out: string;
+  status_day: string;
+  note: string;
+  isCustom?: boolean;
+}
+
+export interface ReportRowItem {
+  id: string;
+  rowKey: string;
+  date: string;
+  cet_name: string;
+  cet_desc: string;
+  time_in: string;
+  time_out: string;
+  shift: string;
+  status_day: string;
+  note: string;
+  isCustom?: boolean;
+}
 type Message = { message_id?: string; message_title?: string; message_subject?: string; message_date?: string; message_publish?: string };
 type Carousel = { carousel_id?: string; carousel_title?: string; carousel_subject?: string; carousel_publish?: string };
 type Session = { username: string; token?: string; user?: Record<string, unknown> };
@@ -284,6 +314,31 @@ export default function Home() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
+  // CRUD state for report table
+  const [customRows, setCustomRows] = useState<CustomReportRow[]>([]);
+  const [deletedRowKeys, setDeletedRowKeys] = useState<string[]>([]);
+  const [rowMetaOverrides, setRowMetaOverrides] = useState<Record<string, { status_day?: string; note?: string; time_in?: string; time_out?: string }>>({});
+  const [showCrudModal, setShowCrudModal] = useState(false);
+  const [crudMode, setCrudMode] = useState<"create" | "edit">("create");
+  const [crudFormData, setCrudFormData] = useState<{
+    id?: string;
+    rowKey?: string;
+    date: string;
+    shift: Shift;
+    time_in: string;
+    time_out: string;
+    status_day: string;
+    note: string;
+    isCustom?: boolean;
+  }>({
+    date: bangkokNow().date,
+    shift: "morning",
+    time_in: "08:30",
+    time_out: "16:30",
+    status_day: "-",
+    note: "-",
+  });
+
   const [subject, setSubject] = useState("");
   const [detail, setDetail] = useState("");
   const [from, setFrom] = useState("");
@@ -511,6 +566,39 @@ export default function Home() {
       window.localStorage.setItem("ytime2_time_overrides", JSON.stringify({}));
     }
 
+    // Load custom report rows
+    const savedCustom = window.localStorage.getItem("ytime2_custom_rows");
+    if (savedCustom) {
+      try {
+        const parsed = JSON.parse(savedCustom);
+        if (Array.isArray(parsed)) setCustomRows(parsed);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    // Load deleted row keys
+    const savedDeleted = window.localStorage.getItem("ytime2_deleted_row_keys");
+    if (savedDeleted) {
+      try {
+        const parsed = JSON.parse(savedDeleted);
+        if (Array.isArray(parsed)) setDeletedRowKeys(parsed);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
+    // Load row meta overrides
+    const savedRowMeta = window.localStorage.getItem("ytime2_row_meta");
+    if (savedRowMeta) {
+      try {
+        const parsed = JSON.parse(savedRowMeta);
+        if (parsed && typeof parsed === "object") setRowMetaOverrides(parsed);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+
     loadHistory(activeUdid, activeProfile);
   }, [loadHistory]);
 
@@ -524,6 +612,194 @@ export default function Home() {
       window.localStorage.setItem("ytime2_profiles_list", JSON.stringify(updated));
       return updated;
     });
+  };
+
+  const shiftToDesc = (shiftKey: string) => {
+    switch (shiftKey) {
+      case "morning":
+      case "working1":
+        return "ลงชื่อปฏิบัติงานเวรเช้า";
+      case "afternoon":
+      case "working2":
+        return "ลงชื่อปฏิบัติงานเวรบ่าย";
+      case "night":
+      case "working3":
+        return "ลงชื่อปฏิบัติงานเวรดึก";
+      case "permit2hr":
+      case "time2hr":
+        return "ลงชื่อขออนุญาต 2 ชม.";
+      default:
+        return "ลงชื่อปฏิบัติงาน";
+    }
+  };
+
+  const shiftToQr = (s: Shift | string): string => {
+    if (s === "morning" || s === "working1") return "working1";
+    if (s === "afternoon" || s === "working2") return "working2";
+    if (s === "night" || s === "working3") return "working3";
+    return "time2hr";
+  };
+
+  const handleOpenCreateModal = () => {
+    setCrudMode("create");
+    setCrudFormData({
+      date: `${currentMonthKey}-${String(today.getDate()).padStart(2, "0")}`,
+      shift: "morning",
+      time_in: "08:30",
+      time_out: "16:30",
+      status_day: "-",
+      note: "-",
+    });
+    setShowCrudModal(true);
+  };
+
+  const handleOpenEditModal = (row: ReportRowItem) => {
+    setCrudMode("edit");
+    const shiftVal: Shift =
+      row.shift === "working1"
+        ? "morning"
+        : row.shift === "working2"
+        ? "afternoon"
+        : row.shift === "working3"
+        ? "night"
+        : "permit2hr";
+
+    setCrudFormData({
+      id: row.id,
+      rowKey: row.rowKey,
+      date: row.date,
+      shift: shiftVal,
+      time_in: row.time_in !== "-" ? row.time_in : "",
+      time_out: row.time_out !== "-" ? row.time_out : "",
+      status_day: row.status_day !== "-" ? row.status_day : "",
+      note: row.note !== "-" ? row.note : "",
+      isCustom: row.isCustom,
+    });
+    setShowCrudModal(true);
+  };
+
+  const handleSaveCrudForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    const qrShift = shiftToQr(crudFormData.shift);
+    const desc = shiftToDesc(crudFormData.shift);
+    const inFormatted = crudFormData.time_in.trim()
+      ? crudFormData.time_in.trim().length === 5
+        ? `${crudFormData.time_in.trim()}:00`
+        : crudFormData.time_in.trim()
+      : "-";
+    const outFormatted = crudFormData.time_out.trim()
+      ? crudFormData.time_out.trim().length === 5
+        ? `${crudFormData.time_out.trim()}:00`
+        : crudFormData.time_out.trim()
+      : "-";
+    const statusVal = crudFormData.status_day.trim() || "-";
+    const noteVal = crudFormData.note.trim() || "-";
+
+    if (crudMode === "create") {
+      const newRow: CustomReportRow = {
+        id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        profileId: profile.nid || profile.udid,
+        date: crudFormData.date,
+        shift: qrShift,
+        cet_name: "ลงชื่อปฏิบัติงาน",
+        cet_desc: desc,
+        time_in: inFormatted,
+        time_out: outFormatted,
+        status_day: statusVal,
+        note: noteVal,
+        isCustom: true,
+      };
+
+      setCustomRows((prev) => {
+        const next = [...prev, newRow];
+        window.localStorage.setItem("ytime2_custom_rows", JSON.stringify(next));
+        return next;
+      });
+
+      setShowCrudModal(false);
+      notify("success", `เพิ่มแถวบันทึกเวลา วันที่ ${crudFormData.date} (${desc}) เรียบร้อยแล้ว`);
+    } else {
+      // Edit / Update
+      if (crudFormData.isCustom && crudFormData.id) {
+        setCustomRows((prev) => {
+          const next = prev.map((r) =>
+            r.id === crudFormData.id
+              ? {
+                  ...r,
+                  date: crudFormData.date,
+                  shift: qrShift,
+                  cet_desc: desc,
+                  time_in: inFormatted,
+                  time_out: outFormatted,
+                  status_day: statusVal,
+                  note: noteVal,
+                }
+              : r
+          );
+          window.localStorage.setItem("ytime2_custom_rows", JSON.stringify(next));
+          return next;
+        });
+      } else {
+        const rowKey = crudFormData.rowKey || `${crudFormData.date}_${qrShift}`;
+        const metaKey = `${profile.nid}_${rowKey}`;
+        const nextMeta = {
+          ...rowMetaOverrides,
+          [metaKey]: {
+            status_day: statusVal,
+            note: noteVal,
+            time_in: inFormatted,
+            time_out: outFormatted,
+          },
+          [rowKey]: {
+            status_day: statusVal,
+            note: noteVal,
+            time_in: inFormatted,
+            time_out: outFormatted,
+          },
+        };
+        setRowMetaOverrides(nextMeta);
+        window.localStorage.setItem("ytime2_row_meta", JSON.stringify(nextMeta));
+
+        if (inFormatted !== "-") {
+          updateTimeOverride(crudFormData.date, qrShift, "IN", inFormatted);
+        }
+        if (outFormatted !== "-") {
+          updateTimeOverride(crudFormData.date, qrShift, "OUT", outFormatted);
+        }
+      }
+
+      setShowCrudModal(false);
+      notify("success", `อัปเดตข้อมูลวันที่ ${crudFormData.date} เรียบร้อยแล้ว`);
+    }
+  };
+
+  const handleDeleteRow = (row: ReportRowItem) => {
+    if (!window.confirm(`ยืนยันการลบรายการวันที่ ${row.date} (${row.cet_desc}) ของ ${profile.name} หรือไม่?`)) {
+      return;
+    }
+
+    if (row.isCustom) {
+      setCustomRows((prev) => {
+        const next = prev.filter((r) => r.id !== row.id);
+        window.localStorage.setItem("ytime2_custom_rows", JSON.stringify(next));
+        return next;
+      });
+    } else {
+      const userRowKey = `${profile.nid}_${row.rowKey}`;
+      setDeletedRowKeys((prev) => {
+        const next = Array.from(new Set([...prev, userRowKey, row.rowKey, row.id]));
+        window.localStorage.setItem("ytime2_deleted_row_keys", JSON.stringify(next));
+        return next;
+      });
+    }
+
+    notify("info", `ลบรายการวันที่ ${row.date} (${row.cet_desc}) เรียบร้อยแล้ว`);
+  };
+
+  const handleRestoreDeleted = () => {
+    setDeletedRowKeys([]);
+    window.localStorage.removeItem("ytime2_deleted_row_keys");
+    notify("success", "คืนค่ารายการที่เคยถูกลบทั้งหมดเรียบร้อยแล้ว");
   };
 
   const updateTimeOverride = (date: string, shiftQr: string, status: "IN" | "OUT", newTime: string) => {
@@ -782,26 +1058,24 @@ export default function Home() {
   const map = `https://www.openstreetmap.org/export/embed.html?bbox=${location.lng - 0.01}%2C${location.lat - 0.007}%2C${location.lng + 0.01}%2C${location.lat + 0.007}&layer=mapnik&marker=${location.lat}%2C${location.lng}`;
 
   const currentMonthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-  const reportRows = useMemo(() => {
+  const reportRows: ReportRowItem[] = useMemo(() => {
     const list = effectiveRecords.filter((r) => r.chk_date.startsWith(currentMonthKey));
-    const paired: {
-      date: string;
-      cet_name: string;
-      cet_desc: string;
-      time_in: string;
-      time_out: string;
-      shift: string;
-    }[] = [];
+    const paired: ReportRowItem[] = [];
 
     for (const r of list) {
+      const rowKey = `${r.chk_date}_${r.chk_cet}`;
       if (r.chk_status === "IN") {
         paired.push({
+          id: `${r.chk_date}_${r.chk_cet}_${paired.length}`,
+          rowKey,
           date: r.chk_date,
           cet_name: r.cet_name || "ลงชื่อปฏิบัติงาน",
           cet_desc: r.cet_description || (r.chk_cet === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : r.chk_cet === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : r.chk_cet === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
           time_in: r.chk_time,
           time_out: "-",
           shift: r.chk_cet,
+          status_day: "-",
+          note: "-",
         });
       } else if (r.chk_status === "OUT") {
         const match = paired.slice().reverse().find((row) => row.date === r.chk_date && row.shift === r.chk_cet && row.time_out === "-");
@@ -809,18 +1083,73 @@ export default function Home() {
           match.time_out = r.chk_time;
         } else {
           paired.push({
+            id: `${r.chk_date}_${r.chk_cet}_${paired.length}`,
+            rowKey,
             date: r.chk_date,
             cet_name: r.cet_name || "ลงชื่อปฏิบัติงาน",
             cet_desc: r.cet_description || (r.chk_cet === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : r.chk_cet === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : r.chk_cet === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
             time_in: "-",
             time_out: r.chk_time,
             shift: r.chk_cet,
+            status_day: "-",
+            note: "-",
           });
         }
       }
     }
-    return paired.sort((a, b) => a.date.localeCompare(b.date));
-  }, [effectiveRecords, currentMonthKey]);
+
+    // Merge custom rows for this profile & month
+    const activeCustom = customRows.filter(
+      (cr) =>
+        (cr.profileId === profile.nid || cr.profileId === profile.udid || !cr.profileId) &&
+        cr.date.startsWith(currentMonthKey)
+    );
+    for (const cr of activeCustom) {
+      paired.push({
+        id: cr.id,
+        rowKey: cr.id,
+        date: cr.date,
+        cet_name: cr.cet_name || "ลงชื่อปฏิบัติงาน",
+        cet_desc: cr.cet_desc || (cr.shift === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : cr.shift === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : cr.shift === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
+        time_in: cr.time_in || "-",
+        time_out: cr.time_out || "-",
+        shift: cr.shift,
+        status_day: cr.status_day || "-",
+        note: cr.note || "-",
+        isCustom: true,
+      });
+    }
+
+    // Apply rowMetaOverrides
+    const withMeta = paired.map((row) => {
+      const metaKey = `${profile.nid}_${row.rowKey}`;
+      const meta = rowMetaOverrides[metaKey] || rowMetaOverrides[row.rowKey];
+      if (meta) {
+        return {
+          ...row,
+          status_day: meta.status_day !== undefined ? meta.status_day : row.status_day,
+          note: meta.note !== undefined ? meta.note : row.note,
+          time_in: meta.time_in !== undefined && meta.time_in !== "-" ? meta.time_in : row.time_in,
+          time_out: meta.time_out !== undefined && meta.time_out !== "-" ? meta.time_out : row.time_out,
+        };
+      }
+      return row;
+    });
+
+    // Filter out deleted rows
+    const filtered = withMeta.filter((row) => {
+      const userRowKey = `${profile.nid}_${row.rowKey}`;
+      const udidRowKey = `${profile.udid}_${row.rowKey}`;
+      return (
+        !deletedRowKeys.includes(userRowKey) &&
+        !deletedRowKeys.includes(udidRowKey) &&
+        !deletedRowKeys.includes(row.rowKey) &&
+        !deletedRowKeys.includes(row.id)
+      );
+    });
+
+    return filtered.sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift));
+  }, [effectiveRecords, currentMonthKey, customRows, rowMetaOverrides, deletedRowKeys, profile.nid, profile.udid]);
 
   const renderPersonnelBar = () => (
     <div className="personnel-bar">
@@ -1215,10 +1544,100 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Dropdown เลือกเจ้าหน้าที่ (จนท.) */}
+              <div className="report-personnel-card no-print">
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", width: "100%" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, color: "var(--ink)", minWidth: "165px" }}>
+                    <Users size={18} color="var(--pink)" />
+                    <span>เลือกเจ้าหน้าที่ (จนท.):</span>
+                  </div>
+                  <select
+                    value={profile.udid}
+                    onChange={(e) => {
+                      if (e.target.value === "__add_new__") {
+                        setModalTab("add");
+                        setShowAddModal(true);
+                      } else if (e.target.value === "__manage__") {
+                        setModalTab("manage");
+                        setShowAddModal(true);
+                      } else {
+                        applyUdid(e.target.value);
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: "260px",
+                      padding: "9px 14px",
+                      borderRadius: "8px",
+                      border: "1.5px solid var(--pink)",
+                      background: "#fff",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "var(--ink)",
+                      cursor: "pointer",
+                      boxShadow: "0 1px 3px rgba(225, 29, 72, 0.1)",
+                    }}
+                  >
+                    {profilesList.map((p, idx) => (
+                      <option key={p.udid || idx} value={p.udid}>
+                        {p.name} {p.nid ? `(NID: ${p.nid})` : `(UDID: ${p.udid})`} {p.subdep ? `• ${p.subdep}` : ""}
+                      </option>
+                    ))}
+                    <option value="__add_new__">+ เพิ่มตัวเลือกเจ้าหน้าที่ใหม่ (ชื่อ & UDID)...</option>
+                    <option value="__manage__">⚙️ จัดการ / ลบรายชื่อเจ้าหน้าที่...</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ whiteSpace: "nowrap" }}
+                    onClick={() => {
+                      setModalTab("add");
+                      setShowAddModal(true);
+                    }}
+                    title="เพิ่มหรือจัดการลบตัวเลือกเจ้าหน้าที่"
+                  >
+                    <UserPlus size={15} /> + เพิ่ม / ลบ จนท.
+                  </button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", fontSize: "12px", color: "var(--muted)", paddingTop: "8px", borderTop: "1px dashed #f1f5f9" }}>
+                  <span>จนท. ที่กำลังแสดงผล: <strong style={{ color: "var(--pink-dark)" }}>{profile.name}</strong> ({profile.nid || profile.udid})</span>
+                  <span>{profile.dept} • {profile.subdep}</span>
+                </div>
+              </div>
+
               {/* Personnel Quick Switcher Bar */}
               {renderPersonnelBar()}
 
               <div className="panel report-panel">
+                {/* CRUD Control Toolbar */}
+                <div className="crud-toolbar no-print">
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ minHeight: "36px", padding: "6px 14px", fontSize: "13px" }}
+                      onClick={handleOpenCreateModal}
+                    >
+                      <Plus size={16} /> + เพิ่มแถวบันทึกเวลา (Create)
+                    </button>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                      ระบบ CRUD: เพิ่มแถวใหม่ (C) • แสดงผลและค้นหา (R) • แก้ไขข้อมูล (U) • ลบแถว (D)
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    {deletedRowKeys.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ fontSize: "11.5px", padding: "4px 10px", minHeight: "30px" }}
+                        onClick={handleRestoreDeleted}
+                        title="คืนค่ารายการที่เคยถูกลบทั้งหมด"
+                      >
+                        <RotateCcw size={13} /> คืนค่ารายการที่ลบ (${deletedRowKeys.length})
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="report-title-area">
                   <h2>บันทึกการมาทำงาน</h2>
                   <div className="user-name">ของ {profile.name}</div>
@@ -1263,13 +1682,14 @@ export default function Home() {
                     <thead>
                       <tr>
                         <th className="center" style={{ width: "45px" }}>No.</th>
-                        <th style={{ width: "110px" }}>วันที่</th>
+                        <th style={{ width: "105px" }}>วันที่</th>
                         <th>ประเภทการสแกน</th>
                         <th>ประเภทการสแกน (ย่อย)</th>
-                        <th className="center" style={{ width: "110px" }}>เวลาเข้า</th>
-                        <th className="center" style={{ width: "110px" }}>เวลาออก</th>
+                        <th className="center" style={{ width: "105px" }}>เวลาเข้า</th>
+                        <th className="center" style={{ width: "105px" }}>เวลาออก</th>
                         <th className="center" style={{ width: "80px" }}>สถานะวัน</th>
                         <th>หมายเหตุ</th>
+                        <th className="center no-print" style={{ width: "90px" }}>จัดการ</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1392,8 +1812,33 @@ export default function Home() {
                                   </div>
                                 )}
                               </td>
-                              <td className="center">-</td>
-                              <td>-</td>
+                              <td className="center">{row.status_day}</td>
+                              <td>
+                                {row.note}
+                                {row.isCustom && <span className="badge-custom">สร้างเอง</span>}
+                              </td>
+                              <td className="center no-print">
+                                <div style={{ display: "inline-flex", gap: "4px", alignItems: "center", justifyContent: "center" }}>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    style={{ width: "26px", height: "26px", color: "var(--pink-dark)", background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "6px" }}
+                                    onClick={() => handleOpenEditModal(row)}
+                                    title="แก้ไขข้อมูลแถวนี้ (Update)"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn btn-delete-row"
+                                    style={{ width: "26px", height: "26px", color: "#dc2626", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px" }}
+                                    onClick={() => handleDeleteRow(row)}
+                                    title="ลบแถวนี้ (Delete)"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           );
                         })

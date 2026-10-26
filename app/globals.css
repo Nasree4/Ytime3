@@ -124,7 +124,7 @@
 
 @media print {
   body { background: #fff !important; color: #000 !important; }
-  .sidebar, .topbar, .report-actions, .heading, .quick-grid, .sidebar-status, .overlay, .link-btn, .btn, .personnel-bar, .modal-backdrop { display: none !important; }
+  .sidebar, .topbar, .report-actions, .heading, .quick-grid, .sidebar-status, .overlay, .link-btn, .btn, .personnel-bar, .modal-backdrop, .no-print, .crud-toolbar, .report-personnel-card, .btn-delete-row { display: none !important; }
   .shell, .main-wrap, .content, .report-panel { padding: 0 !important; margin: 0 !important; max-width: 100% !important; border: none !important; box-shadow: none !important; }
   .hostime-table th, .hostime-table td { border: 1px solid #94a3b8 !important; color: #000 !important; }
   .hostime-table th { background: #f1f5f9 !important; }
