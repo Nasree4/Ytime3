@@ -1,0 +1,131 @@
+// Run against a local dev server. All /api/ytime requests are intercepted;
+// these tests never submit attendance to the hospital.
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const loadPackage = createRequire(import.meta.url);
+const { chromium } = loadPackage(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:5193';
+if (!['127.0.0.1', 'localhost'].includes(new URL(base).hostname)) throw new Error('Use a local test server');
+
+(async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.TEST_BROWSER_CHANNEL ? { channel: process.env.TEST_BROWSER_CHANNEL } : {}) });
+  try {
+    // A new browser must not contain anyone's profile or request their history.
+    const clean = await browser.newPage();
+    const historyRequests = [];
+    await clean.route('**/api/ytime/**', (route) => {
+      if (route.request().url().includes('/history')) historyRequests.push(route.request().url());
+      return route.fulfill({ json: route.request().url().endsWith('/health') ? { online: true } : [] });
+    });
+    await clean.goto(base);
+    await clean.getByRole('heading', { name: 'เพิ่มบุคลากรเพื่อเริ่มใช้งาน' }).waitFor();
+    assert.equal(historyRequests.length, 0);
+    await clean.getByRole('button', { name: 'รายงาน Hostime', exact: true }).click();
+    assert.equal(await clean.getByRole('button', { name: /เพิ่มแถวบันทึกเวลา/ }).isDisabled(), true);
+    await clean.getByRole('button', { name: 'เพิ่มบุคลากรคนแรก', exact: true }).click();
+    await clean.getByRole('textbox', { name: 'ชื่อบุคลากร', exact: true }).fill('Test New User');
+    await clean.getByRole('textbox', { name: 'รหัส UDID บุคลากร', exact: true }).fill('test-new-device');
+    const firstHistory = clean.waitForResponse((response) => response.url().includes('history?udid=test-new-device'));
+    await clean.getByRole('button', { name: /บันทึกเป็นตัวเลือกและเลือกใช้งานทันที/ }).click();
+    await firstHistory;
+    assert.ok(historyRequests.every((url) => url.includes('udid=test-new-device')));
+    await clean.reload();
+    await clean.getByRole('heading', { name: /Test New User/ }).waitFor();
+    assert.equal(await clean.getByRole('button', { name: 'เพิ่มบุคลากรคนแรก', exact: true }).count(), 0);
+    await clean.close();
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('dialog', (dialog) => dialog.accept());
+    const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' }).format(new Date());
+    const date = `${month}-01`;
+    const source = [{ chk_date: date, chk_time: '08:00:00', chk_status: 'IN', chk_cet: 'working1' }, { chk_date: date, chk_time: '16:00:00', chk_status: 'OUT', chk_cet: 'working1' }];
+    let response = { status: 502, body: { error: 'Simulated server failure' } };
+    let submitted;
+    await page.route('**/api/ytime/**', async (route) => {
+      const url = new URL(route.request().url());
+      let payload = [];
+      if (url.pathname.endsWith('/check')) {
+        submitted = route.request().postDataJSON();
+        return route.fulfill({ status: response.status, json: response.body });
+      }
+      if (url.pathname.endsWith('/history')) payload = source;
+      if (url.pathname.endsWith('/health')) payload = { online: true };
+      return route.fulfill({ json: payload });
+    });
+    await page.addInitScript(() => {
+      if (localStorage.getItem('test-seeded')) return;
+      const profiles = [{ name: 'Test Alice', nid: 'test-alice', udid: 'test-device-a', dept: 'Test', subdep: 'Test' }, { name: 'Test Bob', nid: 'test-bob', udid: 'test-device-b', dept: 'Test', subdep: 'Test' }];
+      localStorage.setItem('ytime2_profiles_list', JSON.stringify(profiles));
+      localStorage.setItem('ytime2_user_profile', JSON.stringify(profiles[0]));
+      localStorage.setItem('ytime2_udid', profiles[0].udid);
+      localStorage.setItem('test-seeded', 'true');
+    });
+    await page.goto(base);
+    await page.getByRole('button', { name: 'รายงาน Hostime', exact: true }).click();
+    const table = page.locator('.hostime-table tbody');
+    await table.getByText('08:00:00', { exact: true }).waitFor();
+    await page.getByRole('button', { name: /เพิ่มแถวบันทึกเวลา/ }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('วันที่', { exact: true }).fill(date);
+    await dialog.getByLabel('เวลาเข้า', { exact: true }).fill('10:15:00');
+    await dialog.getByLabel('หมายเหตุ', { exact: true }).fill('Local test row');
+    await dialog.getByRole('button', { name: 'บันทึกรายงานในเบราว์เซอร์' }).click();
+    await table.getByText('Local test row', { exact: false }).waitFor();
+    const customRow = table.locator('tr').filter({ hasText: 'Local test row' });
+    await customRow.getByRole('button', { name: 'แก้ไขข้อมูลแถวนี้ (Update)' }).click();
+    await dialog.getByLabel('เวลาออก', { exact: true }).fill('18:15:00');
+    await dialog.getByRole('button', { name: 'บันทึกรายงานในเบราว์เซอร์' }).click();
+    await customRow.getByText('18:15:00', { exact: true }).waitFor();
+    await customRow.getByTitle(/ลบ/).click();
+    assert.equal(await table.getByText('Local test row', { exact: false }).count(), 0);
+    await page.getByRole('button', { name: /คืนค่ารายการที่ลบ/ }).click();
+    await table.getByText('Local test row', { exact: false }).waitFor();
+    const selector = page.locator('.report-personnel-card select');
+    await selector.selectOption('test-device-b');
+    await table.getByText('08:00:00', { exact: true }).waitFor();
+    assert.equal(await table.getByText('Local test row', { exact: false }).count(), 0);
+    await selector.selectOption('test-device-a');
+    await table.getByText('Local test row', { exact: false }).waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: 'รายงาน Hostime', exact: true }).click();
+    await table.getByText('Local test row', { exact: false }).waitFor();
+    // Edit a server row, including date/shift and clearing a time, then reload.
+    const serverRow = table.locator('tr').filter({ hasText: '08:00:00' });
+    await serverRow.getByRole('button', { name: 'แก้ไขข้อมูลแถวนี้ (Update)' }).click();
+    await dialog.getByLabel('วันที่', { exact: true }).fill(`${month}-02`);
+    await dialog.getByLabel('เวร', { exact: true }).selectOption('afternoon');
+    await dialog.getByLabel('เวลาออก', { exact: true }).fill('');
+    await dialog.getByLabel('หมายเหตุ', { exact: true }).fill('Server row local edit');
+    await dialog.getByRole('button', { name: 'บันทึกรายงานในเบราว์เซอร์' }).click();
+    const editedRow = table.locator('tr').filter({ hasText: 'Server row local edit' });
+    await editedRow.getByText(`${month}-02`, { exact: true }).waitFor();
+    assert.match(await editedRow.innerText(), /เวรบ่าย/);
+    assert.equal((await editedRow.locator('td').nth(5).innerText()).trim(), '-');
+    await selector.selectOption('test-device-b');
+    await table.getByText('16:00:00', { exact: true }).waitFor();
+    assert.equal(await table.getByText('Server row local edit', { exact: false }).count(), 0);
+    await selector.selectOption('test-device-a');
+    await editedRow.waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: 'รายงาน Hostime', exact: true }).click();
+    await editedRow.waitFor();
+    assert.equal((await editedRow.locator('td').nth(5).innerText()).trim(), '-');
+    await page.getByRole('button', { name: 'ลงเวลา', exact: true }).click();
+    const submit = page.getByRole('button', { name: /^บันทึกเวลา/ });
+    await submit.click();
+    await page.locator('.flash.error').filter({ hasText: 'Simulated server failure' }).waitFor();
+    assert.equal(await page.evaluate(() => localStorage.getItem('ytime2_time_overrides')), '{}');
+    assert.equal(submitted.time, undefined);
+    assert.equal(submitted.date, undefined);
+    response = { status: 200, body: { message: '[001-FULL]' } };
+    await submit.click();
+    await page.locator('.flash.error').filter({ hasText: 'ครบแล้ว' }).waitFor();
+    response = { status: 200, body: { message: '[001-IN]' } };
+    await submit.click();
+    await page.locator('.flash.success').filter({ hasText: 'ระบบยืนยันการลงเวลาเข้า (IN)' }).waitFor();
+    assert.equal(await page.evaluate(() => localStorage.getItem('ytime2_time_overrides')), '{}');
+    assert.deepEqual(errors, []);
+    console.log('PASS: browser CRUD, restore, personnel isolation, reload persistence, API error/rejection/success, no automatic overrides');
+  } finally { await browser.close(); }
+})().catch((error) => { console.error(error); process.exitCode = 1; });

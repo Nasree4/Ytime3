@@ -152,7 +152,7 @@
   align-items: center;
   gap: 4px;
 }
-.modal-field input {
+.modal-field input, .modal-field select {
   display: block;
   width: 100%;
   padding: 10px 14px;
@@ -164,6 +164,12 @@
   box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+
+.crud-dialog { border: 1px solid var(--line); border-radius: 16px; padding: 24px; width: min(560px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; color: var(--ink); background: white; }
+.crud-dialog::backdrop { background: rgba(15, 23, 42, .5); }
+.crud-dialog p, .local-report-notice p { font-size: 13px; line-height: 1.6; }
+.local-report-notice { margin-bottom: 16px; border-left: 4px solid #d48b20; }
+.badge-custom { display: inline-block; margin-left: 6px; font-size: 10px; color: #805400; }
 .modal-field input:focus {
   outline: none;
   border-color: var(--pink);

@@ -41,50 +41,14 @@ import {
   X,
 } from "lucide-react";
 import QRCode from "qrcode";
+import { buildReportRows, parseCheckResult, profileId, scopedKey, ownsKey, type HistoryItem, type CustomReportRow, type ReportRowItem, type RowMeta } from "@/lib/attendance";
 
 type Page = "home" | "check" | "calendar" | "report" | "news" | "map" | "appeal" | "qrgen" | "profile";
 
-export interface CustomReportRow {
-  id: string;
-  profileId: string;
-  date: string;
-  shift: string;
-  cet_name: string;
-  cet_desc: string;
-  time_in: string;
-  time_out: string;
-  status_day: string;
-  note: string;
-  isCustom?: boolean;
-}
-
-export interface ReportRowItem {
-  id: string;
-  rowKey: string;
-  date: string;
-  cet_name: string;
-  cet_desc: string;
-  time_in: string;
-  time_out: string;
-  shift: string;
-  status_day: string;
-  note: string;
-  isCustom?: boolean;
-}
 type Message = { message_id?: string; message_title?: string; message_subject?: string; message_date?: string; message_publish?: string };
 type Carousel = { carousel_id?: string; carousel_title?: string; carousel_subject?: string; carousel_publish?: string };
 type Session = { username: string; token?: string; user?: Record<string, unknown> };
 type Location = { lat: number; lng: number; accuracy: number };
-type HistoryItem = {
-  chk_date: string;
-  chk_time: string;
-  chk_status: string;
-  chk_cet: string;
-  chk_lat?: string;
-  chk_lng?: string;
-  cet_name?: string;
-  cet_description?: string;
-};
 type Direction = "in" | "out";
 type Shift = "morning" | "afternoon" | "night" | "permit2hr";
 
@@ -97,70 +61,15 @@ export type UserProfile = {
   isDefault?: boolean;
 };
 
+function isUserProfile(value: unknown): value is UserProfile {
+  return Boolean(value && typeof value === "object" && ["name", "nid", "dept", "subdep", "udid"].every((key) => typeof (value as Record<string, unknown>)[key] === "string"));
+}
+
 const API_BASE = "https://choaironghospital.org";
 const HOSPITAL_COORDS = { lat: 6.222186, lng: 101.808635 };
 
-export const PRESET_PROFILES: Record<string, UserProfile> = {
-  basree: {
-    name: "คุณบัสรี เจ๊ะหามะ",
-    nid: "1960500186031",
-    dept: "กลุ่มงานการพยาบาล",
-    subdep: "งานการพยาบาลผู้ป่วยอุบัติเหตุและนิติเวช",
-    udid: "e0209d15534ea0f4",
-    isDefault: true,
-  },
-  piyaha: {
-    name: "นายปิยะหะ หะยีมุ",
-    nid: "1960500122890",
-    dept: "กลุ่มงานการพยาบาล",
-    subdep: "งานการพยาบาลผู้ป่วยนอก",
-    udid: "1960500122890",
-    isDefault: true,
-  },
-};
-
-export const DEFAULT_PROFILES_LIST: UserProfile[] = [
-  PRESET_PROFILES.basree,
-  PRESET_PROFILES.piyaha,
-];
-
-const PIYAHA_RECORDS: HistoryItem[] = [
-  { chk_date: "2026-10-01", chk_time: "08:38:39", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-01", chk_time: "16:19:07", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-01", chk_time: "16:18:59", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-01", chk_time: "23:48:32", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-03", chk_time: "08:18:07", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-04", chk_time: "00:03:02", chk_status: "IN", chk_cet: "working3", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรดึก" },
-  { chk_date: "2026-10-04", chk_time: "08:33:28", chk_status: "OUT", chk_cet: "working3", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรดึก" },
-  { chk_date: "2026-10-04", chk_time: "23:57:06", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-05", chk_time: "08:33:56", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-05", chk_time: "16:23:59", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-06", chk_time: "00:06:07", chk_status: "IN", chk_cet: "working3", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรดึก" },
-  { chk_date: "2026-10-07", chk_time: "08:44:46", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-07", chk_time: "16:17:29", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-07", chk_time: "16:17:37", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-07", chk_time: "23:58:04", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-09", chk_time: "08:35:39", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-09", chk_time: "16:28:50", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-10", chk_time: "00:13:31", chk_status: "IN", chk_cet: "working3", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรดึก" },
-  { chk_date: "2026-10-10", chk_time: "08:32:22", chk_status: "OUT", chk_cet: "working3", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรดึก" },
-  { chk_date: "2026-10-10", chk_time: "16:21:59", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-10", chk_time: "16:22:14", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-10", chk_time: "23:56:25", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-12", chk_time: "08:33:09", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-12", chk_time: "16:43:04", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-13", chk_time: "16:22:34", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-13", chk_time: "23:49:35", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-14", chk_time: "16:24:57", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-19", chk_time: "08:51:43", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-19", chk_time: "17:05:08", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-20", chk_time: "08:29:42", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-20", chk_time: "16:51:45", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-23", chk_time: "08:06:13", chk_status: "IN", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-23", chk_time: "19:48:32", chk_status: "OUT", chk_cet: "working1", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรเช้า" },
-  { chk_date: "2026-10-25", chk_time: "15:57:56", chk_status: "IN", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-  { chk_date: "2026-10-25", chk_time: "23:38:28", chk_status: "OUT", chk_cet: "working2", cet_name: "ลงชื่อปฏิบัติงาน", cet_description: "ลงชื่อปฏิบัติงานเวรบ่าย" },
-];
+const EMPTY_PROFILE: UserProfile = { name: "", nid: "", dept: "", subdep: "", udid: "" };
+const DEFAULT_PROFILES_LIST: UserProfile[] = [];
 
 const shifts: Record<Shift, { label: string; qr: string; title: string }> = {
   morning: { label: "เวรเช้า", qr: "working1", title: "ลงชื่อปฏิบัติงานเวรเช้า" },
@@ -181,21 +90,6 @@ function bangkokNow() {
   }).formatToParts(new Date());
   const value = (part: string) => parts.find((item) => item.type === part)?.value || "";
   return { date: `${value("year")}-${value("month")}-${value("day")}`, time: `${value("hour")}:${value("minute")}` };
-}
-
-function parseCheckResult(data: unknown): { status: "confirmed" | "unknown"; message: string } {
-  if (!data || typeof data !== "object") return { status: "unknown", message: "ไม่พบคำตอบจากระบบ" };
-  const result = data as Record<string, unknown>;
-  const msg = typeof result.message === "string" ? result.message : "";
-  if (msg.includes("[001-IN]")) return { status: "confirmed", message: "ลงชื่อเข้าปฏิบัติงานสำเร็จ (IN)" };
-  if (msg.includes("[001-OUT]")) return { status: "confirmed", message: "ลงชื่อออกปฏิบัติงานสำเร็จ (OUT)" };
-  if (msg.includes("[001-FULL]")) return { status: "unknown", message: "รอบเวลานี้ได้ลงเวลาเข้าและออกครบแล้ว (FULL)" };
-  if (msg.includes("[001-QREXPIRE]")) return { status: "unknown", message: "รหัส QR หมดอายุแล้ว" };
-  if (msg.includes("[002-QRCODE]")) return { status: "unknown", message: "รหัส QR ไม่ถูกต้อง" };
-  if (msg.includes("[003-UNREG]")) return { status: "unknown", message: "UDID นี้ยังไม่ได้ลงทะเบียนในระบบ" };
-  if (msg.includes("[004-SCAN_ANOTHER_DEVICE]")) return { status: "unknown", message: "อุปกรณ์ไม่ตรงกับระบบเดิม (SCAN_ANOTHER_DEVICE)" };
-  if (result.success === true || result.ok === true || result.status === "success") return { status: "confirmed", message: "บันทึกเวลาสำเร็จ" };
-  return { status: "unknown", message: msg || "ส่งข้อมูลแล้ว กรุณาตรวจประวัติลงเวลา" };
 }
 
 const dateLabel = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "long", year: "numeric" });
@@ -284,6 +178,7 @@ export default function Home() {
   const [carousel, setCarousel] = useState<Carousel[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState("");
+  const [sendingCheck, setSendingCheck] = useState(false);
   const [flash, setFlash] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -292,8 +187,8 @@ export default function Home() {
   const [qr, setQr] = useState("");
 
   const [profilesList, setProfilesList] = useState<UserProfile[]>(DEFAULT_PROFILES_LIST);
-  const [profile, setProfile] = useState<UserProfile>(PRESET_PROFILES.basree);
-  const [uid, setUid] = useState(PRESET_PROFILES.basree.udid);
+  const [profile, setProfile] = useState<UserProfile>(EMPTY_PROFILE);
+  const [uid, setUid] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [modalTab, setModalTab] = useState<"add" | "manage">("add");
   const [newPersonName, setNewPersonName] = useState("");
@@ -304,11 +199,11 @@ export default function Home() {
 
   const [direction, setDirection] = useState<Direction>("out");
   const [shift, setShift] = useState<Shift>("afternoon");
-  const [workDate, setWorkDate] = useState("2026-10-25");
+  const [workDate, setWorkDate] = useState(() => bangkokNow().date);
   const [workTime, setWorkTime] = useState(bangkokNow().time);
   const [camera, setCamera] = useState(false);
   const [location, setLocation] = useState<Location>({ lat: HOSPITAL_COORDS.lat, lng: HOSPITAL_COORDS.lng, accuracy: 10 });
-  const [month, setMonth] = useState(() => new Date(2026, 9, 1));
+  const [month, setMonth] = useState(() => new Date(`${bangkokNow().date.slice(0, 7)}-01T12:00:00`));
   const [records, setRecords] = useState<HistoryItem[]>([]);
   const [timeOverrides, setTimeOverrides] = useState<Record<string, string>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -317,7 +212,7 @@ export default function Home() {
   // CRUD state for report table
   const [customRows, setCustomRows] = useState<CustomReportRow[]>([]);
   const [deletedRowKeys, setDeletedRowKeys] = useState<string[]>([]);
-  const [rowMetaOverrides, setRowMetaOverrides] = useState<Record<string, { status_day?: string; note?: string; time_in?: string; time_out?: string }>>({});
+  const [rowMetaOverrides, setRowMetaOverrides] = useState<Record<string, RowMeta>>({});
   const [showCrudModal, setShowCrudModal] = useState(false);
   const [officialView, setOfficialView] = useState(false);
   const [crudMode, setCrudMode] = useState<"create" | "edit">("create");
@@ -351,64 +246,60 @@ export default function Home() {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const today = new Date();
+  const historyRequest = useRef(0);
+  const [historyError, setHistoryError] = useState("");
+  const [storageReady, setStorageReady] = useState(false);
+  const crudDialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (showCrudModal) crudDialog.current?.showModal();
+    else crudDialog.current?.close();
+  }, [showCrudModal]);
 
   const loadHistory = useCallback(async (targetUdid: string, targetProfile?: UserProfile) => {
     const trimmed = targetUdid.trim();
-    if (!trimmed) return;
-    setBusy("records");
-
-    const isPiyaha =
-      trimmed === PRESET_PROFILES.piyaha.udid ||
-      trimmed === PRESET_PROFILES.piyaha.nid ||
-      trimmed.toLowerCase().includes("piyaha") ||
-      (targetProfile && (targetProfile.nid === PRESET_PROFILES.piyaha.nid || targetProfile.udid === PRESET_PROFILES.piyaha.udid));
-
-    if (isPiyaha) {
-      setRecords(PIYAHA_RECORDS);
+    if (!trimmed) {
+      historyRequest.current += 1;
+      setRecords([]);
+      setHistoryError("");
       setBusy("");
       return;
     }
+    setBusy("records");
 
+    const requestId = ++historyRequest.current;
+    setRecords([]);
+    setHistoryError("");
     try {
-      const queryUdid =
-        targetProfile?.udid ||
-        (trimmed === PRESET_PROFILES.basree.nid ? PRESET_PROFILES.basree.udid : trimmed);
+      const queryUdid = targetProfile?.udid || trimmed;
       const data = await getApi<HistoryItem[]>(`history?udid=${encodeURIComponent(queryUdid)}`);
-      const list = Array.isArray(data) ? data : [];
-      setRecords(list);
+      if (!Array.isArray(data)) throw new Error("รูปแบบประวัติจาก API ไม่ถูกต้อง");
+      if (requestId === historyRequest.current) setRecords(data);
     } catch (e) {
-      console.warn("Could not load history:", e);
-      setRecords([]);
+      if (requestId === historyRequest.current) {
+        setRecords([]);
+        setHistoryError(`โหลดประวัติไม่สำเร็จ: ${toError(e)} กรุณาตรวจสอบ UDID`);
+      }
     } finally {
-      setBusy("");
+      if (requestId === historyRequest.current) setBusy("");
     }
   }, []);
 
   const selectProfile = useCallback((p: UserProfile) => {
     setProfile(p);
     setUid(p.udid);
+    setShowCrudModal(false);
+    setEditingKey(null);
     window.localStorage.setItem("ytime2_user_profile", JSON.stringify(p));
     window.localStorage.setItem("ytime2_udid", p.udid);
     loadHistory(p.udid, p);
-    notify("success", `สลับข้อมูลเป็น ${p.name} (${p.subdep}) เรียบร้อยแล้ว`);
+    if (p.udid) notify("success", `สลับข้อมูลเป็น ${p.name} (${p.subdep}) เรียบร้อยแล้ว`);
   }, [loadHistory]);
 
   const applyUdid = useCallback((inputVal: string) => {
     const trimmed = inputVal.trim();
     if (!trimmed) {
       notify("error", "กรุณาระบุ UDID หรือรหัสประจำตัว");
-      return;
-    }
-
-    // 1. Check if matches Piyaha
-    if (trimmed === PRESET_PROFILES.piyaha.udid || trimmed === PRESET_PROFILES.piyaha.nid || trimmed.toLowerCase().includes("piyaha") || trimmed.includes("ปิยะหะ")) {
-      selectProfile(PRESET_PROFILES.piyaha);
-      return;
-    }
-
-    // 2. Check if matches Basree
-    if (trimmed === PRESET_PROFILES.basree.udid || trimmed === PRESET_PROFILES.basree.nid || trimmed.toLowerCase().includes("basree") || trimmed.includes("บัสรี")) {
-      selectProfile(PRESET_PROFILES.basree);
       return;
     }
 
@@ -482,10 +373,6 @@ export default function Home() {
   };
 
   const handleDeleteProfile = (targetUdid: string, targetName?: string) => {
-    if (profilesList.length <= 1) {
-      notify("error", "ต้องมีบุคลากรในระบบอย่างน้อย 1 คน ไม่สามารถลบทั้งหมดได้");
-      return;
-    }
     const target = profilesList.find((p) => p.udid === targetUdid || p.nid === targetUdid);
     const displayName = targetName || target?.name || targetUdid;
 
@@ -497,9 +384,7 @@ export default function Home() {
 
     if (profile.udid === targetUdid || profile.nid === targetUdid) {
       const remaining = profilesList.filter((p) => p.udid !== targetUdid && p.nid !== targetUdid);
-      if (remaining.length > 0) {
-        selectProfile(remaining[0]);
-      }
+      selectProfile(remaining[0] || EMPTY_PROFILE);
     }
     notify("success", `ลบตัวเลือกบุคลากร "${displayName}" ออกจากระบบเรียบร้อยแล้ว`);
   };
@@ -517,35 +402,35 @@ export default function Home() {
     if (savedList) {
       try {
         const parsed = JSON.parse(savedList);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const hasBasree = parsed.some((p: UserProfile) => p.nid === PRESET_PROFILES.basree.nid || p.udid === PRESET_PROFILES.basree.udid);
-          const hasPiyaha = parsed.some((p: UserProfile) => p.nid === PRESET_PROFILES.piyaha.nid || p.udid === PRESET_PROFILES.piyaha.udid);
-          const merged = [...parsed];
-          if (!hasBasree) merged.unshift(PRESET_PROFILES.basree);
-          if (!hasPiyaha) merged.push(PRESET_PROFILES.piyaha);
-          curList = merged;
+        if (Array.isArray(parsed)) {
+          curList = parsed.filter(isUserProfile);
         }
       } catch (e) {
         console.warn(e);
       }
     }
+    // One-time hydration from browser storage after SSR; no render feedback loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setProfilesList(curList);
 
     // 2. Load active profile
     const savedProfile = window.localStorage.getItem("ytime2_user_profile");
-    let activeProfile = PRESET_PROFILES.basree;
+    let activeProfile = curList[0] || EMPTY_PROFILE;
     if (savedProfile) {
       try {
-        activeProfile = JSON.parse(savedProfile);
+        const parsed = JSON.parse(savedProfile);
+        if (isUserProfile(parsed)) activeProfile = parsed;
       } catch (e) {
         console.warn(e);
       }
     }
-    setProfile(activeProfile);
-
     // 3. Load active UDID
     const savedUdid = window.localStorage.getItem("ytime2_udid");
-    const activeUdid = savedUdid || activeProfile.udid;
+    const activeUdid = activeProfile.udid || savedUdid || "";
+    if (!activeProfile.udid && activeUdid) {
+      activeProfile = { ...EMPTY_PROFILE, name: "บุคลากร", udid: activeUdid };
+    }
+    setProfile(activeProfile);
     setUid(activeUdid);
     if (!savedUdid) window.localStorage.setItem("ytime2_udid", activeUdid);
 
@@ -600,6 +485,7 @@ export default function Home() {
       }
     }
 
+    setStorageReady(true);
     loadHistory(activeUdid, activeProfile);
   }, [loadHistory]);
 
@@ -642,9 +528,10 @@ export default function Home() {
   };
 
   const handleOpenCreateModal = () => {
+    if (!profile.udid.trim()) return;
     setCrudMode("create");
     setCrudFormData({
-      date: `${currentMonthKey}-${String(today.getDate()).padStart(2, "0")}`,
+      date: `${currentMonthKey}-01`,
       shift: "morning",
       time_in: "08:30",
       time_out: "16:30",
@@ -681,6 +568,7 @@ export default function Home() {
 
   const handleSaveCrudForm = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!storageReady || !profile.udid.trim()) return;
     const qrShift = shiftToQr(crudFormData.shift);
     const desc = shiftToDesc(crudFormData.shift);
     const inFormatted = crudFormData.time_in.trim()
@@ -699,7 +587,7 @@ export default function Home() {
     if (crudMode === "create") {
       const newRow: CustomReportRow = {
         id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        profileId: profile.nid || profile.udid,
+        profileId: profileId(profile),
         date: crudFormData.date,
         shift: qrShift,
         cet_name: "ลงชื่อปฏิบัติงาน",
@@ -718,7 +606,7 @@ export default function Home() {
       });
 
       setShowCrudModal(false);
-      notify("success", `เพิ่มแถวบันทึกเวลา วันที่ ${crudFormData.date} (${desc}) เรียบร้อยแล้ว`);
+      notify("success", `เพิ่มแถวบันทึกเวลา วันที่ ${crudFormData.date} (${desc}) ในเบราว์เซอร์นี้แล้ว`);
     } else {
       // Edit / Update
       if (crudFormData.isCustom && crudFormData.id) {
@@ -740,33 +628,23 @@ export default function Home() {
           window.localStorage.setItem("ytime2_custom_rows", JSON.stringify(next));
           return next;
         });
+        const nextMeta = { ...rowMetaOverrides };
+        delete nextMeta[scopedKey(profile, crudFormData.id)];
+        delete nextMeta[`${profile.udid}_${crudFormData.id}`];
+        window.localStorage.setItem("ytime2_row_meta", JSON.stringify(nextMeta));
+        setRowMetaOverrides(nextMeta);
       } else {
-        const rowKey = crudFormData.rowKey || `${crudFormData.date}_${qrShift}`;
-        const metaKey = `${profile.nid}_${rowKey}`;
+        const rowKey = crudFormData.rowKey!;
         const nextMeta = {
           ...rowMetaOverrides,
-          [metaKey]: {
-            status_day: statusVal,
-            note: noteVal,
-            time_in: inFormatted,
-            time_out: outFormatted,
-          },
-          [rowKey]: {
-            status_day: statusVal,
-            note: noteVal,
-            time_in: inFormatted,
-            time_out: outFormatted,
+          [scopedKey(profile, rowKey)]: {
+            date: crudFormData.date, shift: qrShift, cet_desc: desc,
+            status_day: statusVal, note: noteVal,
+            time_in: inFormatted, time_out: outFormatted,
           },
         };
-        setRowMetaOverrides(nextMeta);
         window.localStorage.setItem("ytime2_row_meta", JSON.stringify(nextMeta));
-
-        if (inFormatted !== "-") {
-          updateTimeOverride(crudFormData.date, qrShift, "IN", inFormatted);
-        }
-        if (outFormatted !== "-") {
-          updateTimeOverride(crudFormData.date, qrShift, "OUT", outFormatted);
-        }
+        setRowMetaOverrides(nextMeta);
       }
 
       setShowCrudModal(false);
@@ -779,39 +657,36 @@ export default function Home() {
       return;
     }
 
-    if (row.isCustom) {
-      setCustomRows((prev) => {
-        const next = prev.filter((r) => r.id !== row.id);
-        window.localStorage.setItem("ytime2_custom_rows", JSON.stringify(next));
-        return next;
-      });
-    } else {
-      const userRowKey = `${profile.nid}_${row.rowKey}`;
-      setDeletedRowKeys((prev) => {
-        const next = Array.from(new Set([...prev, userRowKey, row.rowKey, row.id]));
-        window.localStorage.setItem("ytime2_deleted_row_keys", JSON.stringify(next));
-        return next;
-      });
-    }
-
-    notify("info", `ลบรายการวันที่ ${row.date} (${row.cet_desc}) เรียบร้อยแล้ว`);
+    const next = Array.from(new Set([...deletedRowKeys, scopedKey(profile, row.rowKey)]));
+    window.localStorage.setItem("ytime2_deleted_row_keys", JSON.stringify(next));
+    setDeletedRowKeys(next);
+    notify("info", "ซ่อนรายการในรายงานเฉพาะเบราว์เซอร์นี้แล้ว ข้อมูลโรงพยาบาลไม่เปลี่ยนแปลง");
   };
 
   const handleRestoreDeleted = () => {
-    setDeletedRowKeys([]);
-    window.localStorage.removeItem("ytime2_deleted_row_keys");
-    notify("success", "คืนค่ารายการที่เคยถูกลบทั้งหมดเรียบร้อยแล้ว");
+    const next = deletedRowKeys.filter((key) => !ownsKey(profile, key));
+    window.localStorage.setItem("ytime2_deleted_row_keys", JSON.stringify(next));
+    setDeletedRowKeys(next);
+    notify("success", "คืนค่ารายการที่ซ่อนของเจ้าหน้าที่ที่เลือกแล้ว");
   };
 
   const updateTimeOverride = (date: string, shiftQr: string, status: "IN" | "OUT", newTime: string) => {
-    const key = `${date}_${shiftQr}_${status}`;
-    const userKey = `${profile.nid}_${key}`;
-    const udidKey = `${profile.udid}_${key}`;
-    const formatted = newTime.trim().length === 5 ? `${newTime.trim()}:00` : newTime.trim();
-    const next = { ...timeOverrides, [key]: formatted, [userKey]: formatted, [udidKey]: formatted };
-    setTimeOverrides(next);
+    if (!storageReady || !profile.udid.trim() || !date || !newTime.trim()) return;
+    const key = scopedKey(profile, date + "_" + shiftQr + "_" + status);
+    const formatted = newTime.trim().length === 5 ? newTime.trim() + ":00" : newTime.trim();
+    const next = { ...timeOverrides, [key]: formatted };
     window.localStorage.setItem("ytime2_time_overrides", JSON.stringify(next));
-    notify("success", `แก้ไขเวลา${status === "IN" ? "เข้า" : "ออก"} วันที่ ${date} เป็น ${formatted} น. เรียบร้อยแล้ว`);
+    setTimeOverrides(next);
+    notify("success", "บันทึกเวลาปรับแก้เฉพาะเบราว์เซอร์นี้แล้ว ข้อมูลโรงพยาบาลไม่เปลี่ยนแปลง");
+  };
+
+  const updateRowTime = (row: ReportRowItem, field: "time_in" | "time_out", value: string) => {
+    const formatted = value ? (value.length === 5 ? value + ":00" : value) : "-";
+    const key = scopedKey(profile, row.rowKey);
+    const next = { ...rowMetaOverrides, [key]: { date: row.date, shift: row.shift, cet_desc: row.cet_desc, time_in: row.time_in, time_out: row.time_out, status_day: row.status_day, note: row.note, [field]: formatted } };
+    window.localStorage.setItem("ytime2_row_meta", JSON.stringify(next));
+    setRowMetaOverrides(next);
+    notify("success", "บันทึกเวลาของแถวนี้เฉพาะเบราว์เซอร์นี้แล้ว");
   };
 
   useEffect(() => {
@@ -931,16 +806,16 @@ export default function Home() {
 
   async function check(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (sendingCheck || !storageReady) return;
     if (!uid.trim()) {
       notify("error", "กรุณาระบุ UDID บุคลากร");
       return;
     }
     setBusy("check");
+    setSendingCheck(true);
     setFlash(null);
+    const historyVersion = historyRequest.current;
 
-    const timeFormatted = workTime.trim().length === 5 ? `${workTime.trim()}:00` : workTime.trim();
-    const dirUpper = direction === "in" ? "IN" : "OUT";
-    updateTimeOverride(workDate, shifts[shift].qr, dirUpper, timeFormatted);
 
     try {
       const qrCode = qr.trim() || shifts[shift].qr;
@@ -949,19 +824,18 @@ export default function Home() {
         qr: qrCode,
         lat: String(location.lat),
         lng: String(location.lng),
-        time: timeFormatted,
-        date: workDate,
-        chk_time: timeFormatted,
-        chk_date: workDate,
-        datetime: `${workDate} ${timeFormatted}`,
+
       });
+      if (historyVersion !== historyRequest.current) return;
       const result = parseCheckResult(response);
-      notify("success", `บันทึกเวลา${direction === "in" ? "เข้า" : "ออก"} ${timeFormatted} น. เรียบร้อยแล้ว`);
+      notify(result.status === "confirmed" ? "success" : "error", result.message);
       await loadHistory(uid.trim(), profile);
     } catch (error) {
-      notify("success", `บันทึกเวลา${direction === "in" ? "เข้า" : "ออก"} เป็น ${timeFormatted} น. เรียบร้อยแล้ว`);
-      await loadHistory(uid.trim());
+      if (historyVersion !== historyRequest.current) return;
+      notify("error", "ยังยืนยันการลงเวลาไม่ได้: " + toError(error) + " กรุณาตรวจประวัติก่อนส่งซ้ำ");
+      await loadHistory(uid.trim(), profile);
     } finally {
+      setSendingCheck(false);
       setBusy("");
     }
   }
@@ -1002,155 +876,16 @@ export default function Home() {
     }
   }
 
-  const effectiveRecords = useMemo(() => {
-    const existingKeys = new Set<string>();
-    const updated = records.map((r) => {
-      const key = `${r.chk_date}_${r.chk_cet}_${r.chk_status}`;
-      existingKeys.add(key);
-      const userKey = `${profile.nid}_${key}`;
-      const udidKey = `${profile.udid}_${key}`;
-      const overrideVal = timeOverrides[userKey] || timeOverrides[udidKey] || timeOverrides[key];
-      if (overrideVal) {
-        return { ...r, chk_time: overrideVal };
-      }
-      return r;
-    });
-
-    for (const [key, val] of Object.entries(timeOverrides)) {
-      let rawKey = key;
-      if (key.includes("_") && key.split("_").length === 4) {
-        if (key.startsWith(`${profile.nid}_`)) {
-          rawKey = key.slice(`${profile.nid}_`.length);
-        } else {
-          continue;
-        }
-      }
-      if (!existingKeys.has(rawKey)) {
-        const parts = rawKey.split("_");
-        if (parts.length === 3) {
-          const [date, cet, status] = parts;
-          existingKeys.add(rawKey);
-          updated.push({
-            chk_date: date,
-            chk_time: val,
-            chk_status: status,
-            chk_cet: cet,
-            cet_name: "ลงชื่อปฏิบัติงาน",
-            cet_description:
-              cet === "working1"
-                ? "ลงชื่อปฏิบัติงานเวรเช้า"
-                : cet === "working2"
-                ? "ลงชื่อปฏิบัติงานเวรบ่าย"
-                : cet === "working3"
-                ? "ลงชื่อปฏิบัติงานเวรดึก"
-                : "ลงชื่อขออนุญาต 2 ชม.",
-          });
-        }
-      }
-    }
-
-    return updated;
-  }, [records, timeOverrides, profile.nid]);
-
   const todayIso = bangkokNow().date;
-  const todayRecords = effectiveRecords.filter((r) => r.chk_date === todayIso);
+  const todayRecords = records.filter((r) => r.chk_date === todayIso);
   const days = Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => i + 1);
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const map = `https://www.openstreetmap.org/export/embed.html?bbox=${location.lng - 0.01}%2C${location.lat - 0.007}%2C${location.lng + 0.01}%2C${location.lat + 0.007}&layer=mapnik&marker=${location.lat}%2C${location.lng}`;
 
   const currentMonthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-  const reportRows: ReportRowItem[] = useMemo(() => {
-    const list = effectiveRecords.filter((r) => r.chk_date.startsWith(currentMonthKey));
-    const paired: ReportRowItem[] = [];
-
-    for (const r of list) {
-      const rowKey = `${r.chk_date}_${r.chk_cet}`;
-      if (r.chk_status === "IN") {
-        paired.push({
-          id: `${r.chk_date}_${r.chk_cet}_${paired.length}`,
-          rowKey,
-          date: r.chk_date,
-          cet_name: r.cet_name || "ลงชื่อปฏิบัติงาน",
-          cet_desc: r.cet_description || (r.chk_cet === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : r.chk_cet === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : r.chk_cet === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
-          time_in: r.chk_time,
-          time_out: "-",
-          shift: r.chk_cet,
-          status_day: "-",
-          note: "-",
-        });
-      } else if (r.chk_status === "OUT") {
-        const match = paired.slice().reverse().find((row) => row.date === r.chk_date && row.shift === r.chk_cet && row.time_out === "-");
-        if (match) {
-          match.time_out = r.chk_time;
-        } else {
-          paired.push({
-            id: `${r.chk_date}_${r.chk_cet}_${paired.length}`,
-            rowKey,
-            date: r.chk_date,
-            cet_name: r.cet_name || "ลงชื่อปฏิบัติงาน",
-            cet_desc: r.cet_description || (r.chk_cet === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : r.chk_cet === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : r.chk_cet === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
-            time_in: "-",
-            time_out: r.chk_time,
-            shift: r.chk_cet,
-            status_day: "-",
-            note: "-",
-          });
-        }
-      }
-    }
-
-    // Merge custom rows for this profile & month
-    const activeCustom = customRows.filter(
-      (cr) =>
-        (cr.profileId === profile.nid || cr.profileId === profile.udid || !cr.profileId) &&
-        cr.date.startsWith(currentMonthKey)
-    );
-    for (const cr of activeCustom) {
-      paired.push({
-        id: cr.id,
-        rowKey: cr.id,
-        date: cr.date,
-        cet_name: cr.cet_name || "ลงชื่อปฏิบัติงาน",
-        cet_desc: cr.cet_desc || (cr.shift === "working1" ? "ลงชื่อปฏิบัติงานเวรเช้า" : cr.shift === "working2" ? "ลงชื่อปฏิบัติงานเวรบ่าย" : cr.shift === "working3" ? "ลงชื่อปฏิบัติงานเวรดึก" : "ลงชื่อขออนุญาต 2 ชม."),
-        time_in: cr.time_in || "-",
-        time_out: cr.time_out || "-",
-        shift: cr.shift,
-        status_day: cr.status_day || "-",
-        note: cr.note || "-",
-        isCustom: true,
-      });
-    }
-
-    // Apply rowMetaOverrides
-    const withMeta = paired.map((row) => {
-      const metaKey = `${profile.nid}_${row.rowKey}`;
-      const meta = rowMetaOverrides[metaKey] || rowMetaOverrides[row.rowKey];
-      if (meta) {
-        return {
-          ...row,
-          status_day: meta.status_day !== undefined ? meta.status_day : row.status_day,
-          note: meta.note !== undefined ? meta.note : row.note,
-          time_in: meta.time_in !== undefined && meta.time_in !== "-" ? meta.time_in : row.time_in,
-          time_out: meta.time_out !== undefined && meta.time_out !== "-" ? meta.time_out : row.time_out,
-        };
-      }
-      return row;
-    });
-
-    // Filter out deleted rows
-    const filtered = withMeta.filter((row) => {
-      const userRowKey = `${profile.nid}_${row.rowKey}`;
-      const udidRowKey = `${profile.udid}_${row.rowKey}`;
-      return (
-        !deletedRowKeys.includes(userRowKey) &&
-        !deletedRowKeys.includes(udidRowKey) &&
-        !deletedRowKeys.includes(row.rowKey) &&
-        !deletedRowKeys.includes(row.id)
-      );
-    });
-
-    return filtered.sort((a, b) => a.date.localeCompare(b.date) || a.shift.localeCompare(b.shift));
-  }, [effectiveRecords, currentMonthKey, customRows, rowMetaOverrides, deletedRowKeys, profile.nid, profile.udid]);
+  const reportRows = useMemo(() => buildReportRows(records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys),
+    [records, profile, currentMonthKey, timeOverrides, customRows, rowMetaOverrides, deletedRowKeys]);
+  const deletedCount = deletedRowKeys.filter((key) => ownsKey(profile, key)).length;
 
   const renderPersonnelBar = () => (
     <div className="personnel-bar">
@@ -1188,6 +923,10 @@ export default function Home() {
       </div>
     </div>
   );
+
+  // Personnel storage and the live clock are browser-owned. A stable initial
+  // screen also avoids hydration mismatches when a minute/day rolls over.
+  if (!storageReady) return <main className="content"><p role="status">กำลังอ่านข้อมูลในเบราว์เซอร์…</p></main>;
 
   return (
     <div className="shell">
@@ -1228,12 +967,18 @@ export default function Home() {
             <span className="top-date">{dateLabel.format(today)}</span>
             <button className="user-pill" onClick={() => go("profile")}>
               <UserRound size={18} />
-              {session?.username || profile.name}
+              {session?.username || profile.name || "ยังไม่ได้เลือกบุคลากร"}
             </button>
           </div>
         </header>
 
         <main className="content">
+          {!profile.udid && <section className="panel local-report-notice" aria-label="เริ่มต้นใช้งาน">
+            <h2>เพิ่มบุคลากรเพื่อเริ่มใช้งาน</h2>
+            <p>เว็บไม่มีรายชื่อหรือรหัสบุคลากรตั้งต้น กรอกข้อมูลของคุณในเบราว์เซอร์นี้เพื่อดูรายงานและลงเวลา</p>
+            <button type="button" className="btn btn-primary" onClick={() => { setModalTab("add"); setShowAddModal(true); }}>เพิ่มบุคลากรคนแรก</button>
+          </section>}
+          {historyError && <div className="flash error" role="alert">{historyError}</div>}
           {flash && (
             <div className={`flash ${flash.type}`} role="status">
               {flash.type === "error" ? <AlertCircle size={19} /> : <CheckCircle2 size={19} />}
@@ -1247,7 +992,7 @@ export default function Home() {
               <section className="hero">
                 <div className="hero-text">
                   <div className="hero-date"><Clock3 size={16} />{dateLabel.format(today)}</div>
-                  <h1>สวัสดี, คุณ{profile.name}<br /><span>พร้อมเริ่มวันทำงาน</span></h1>
+                  <h1>{profile.name ? `สวัสดี, ${profile.name}` : "ยินดีต้อนรับสู่ YTime2"}<br /><span>พร้อมเริ่มวันทำงาน</span></h1>
                   <p>ระบบลงเวลาปฏิบัติงาน โรงพยาบาลเจาะไอร้อง จ.นราธิวาส (Hostime v.1.0.3)</p>
                   <button className="btn btn-white" onClick={() => go("check")}>
                     ไปหน้าลงเวลา <ArrowRight size={18} />
@@ -1339,7 +1084,7 @@ export default function Home() {
               <div className="two-col">
                 <form className="panel form attendance-form" onSubmit={check}>
                   <h2>ข้อมูลการลงเวลา</h2>
-                  <p className="subtext">ปรับแก้วันที่และเวลาออกได้ตามจริง ระบบจะบันทึกตรงตามที่ระบุในฟอร์ม</p>
+                  <p className="subtext">ปุ่มส่งลงเวลาใช้เวลาปัจจุบันของเซิร์ฟเวอร์ ประเภทเข้า/ออกยึดตามคำตอบของระบบ ส่วนวันที่และเวลาในฟอร์มใช้ปรับรายงานในเบราว์เซอร์เท่านั้น</p>
 
                   {todayRecords.length > 0 && (
                     <div style={{ marginBottom: "16px", padding: "12px 14px", background: "#f0f7ff", border: "1px solid #c7e0ff", borderRadius: "9px", fontSize: "13px" }}>
@@ -1392,7 +1137,8 @@ export default function Home() {
                           cursor: "pointer",
                         }}
                       >
-                        {profilesList.map((p, idx) => (
+                        <option value="" disabled>เลือกหรือเพิ่มบุคลากร</option>
+                    {profilesList.map((p, idx) => (
                           <option key={p.udid || idx} value={p.udid}>
                             {p.name} {p.subdep ? `(${p.subdep})` : `(${p.udid})`}
                           </option>
@@ -1431,7 +1177,7 @@ export default function Home() {
                             applyUdid(uid);
                           }
                         }}
-                        placeholder="กรอก UDID เช่น e0209d15534ea0f4 หรือ 1960500122890"
+                        placeholder="กรอกรหัสของคุณ"
                         autoComplete="off"
                         style={{ margin: 0, fontSize: "13px" }}
                       />
@@ -1485,23 +1231,23 @@ export default function Home() {
                     <label>รหัส QR ที่ส่ง<input value={qr} onChange={(e) => setQr(e.target.value)} placeholder={shifts[shift].qr} /></label>
                   </details>
 
-                  <button className="btn btn-primary full" disabled={!uid.trim() || busy === "check"}>
-                    {busy === "check" ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
-                    {busy === "check" ? "กำลังบันทึกเวลา..." : `บันทึกเวลา${direction === "in" ? "เข้า (IN)" : "ออก (OUT)"}`}
+                  <button className="btn btn-primary full" disabled={!storageReady || !uid.trim() || sendingCheck}>
+                    {sendingCheck ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
+                    {sendingCheck ? "กำลังบันทึกเวลา..." : `บันทึกเวลา${direction === "in" ? "เข้า (IN)" : "ออก (OUT)"}`}
                   </button>
 
                   <button
                     type="button"
                     className="btn btn-outline full"
                     style={{ marginTop: "10px" }}
+                    disabled={!profile.udid.trim()}
                     onClick={() => {
                       const dirUpper = direction === "in" ? "IN" : "OUT";
-                      const dirLabel = direction === "in" ? "เข้า" : "ออก";
                       const formatted = workTime.length === 5 ? `${workTime}:00` : workTime;
                       updateTimeOverride(workDate, shifts[shift].qr, dirUpper, formatted);
                     }}
                   >
-                    <Pencil size={15} /> บันทึกปรับแก้เวลา{direction === "in" ? "เข้า" : "ออก"}โดยตรง
+                    <Pencil size={15} /> ปรับเวลา{direction === "in" ? "เข้า" : "ออก"}ในรายงานเฉพาะเบราว์เซอร์นี้
                   </button>
                 </form>
 
@@ -1535,9 +1281,9 @@ export default function Home() {
                     type="button"
                     className={`btn ${officialView ? "btn-primary" : "btn-outline"}`}
                     onClick={() => setOfficialView(!officialView)}
-                    title="สลับระหว่างโหมดแก้ไขข้อมูล กับโหมดมุมมองทางการที่เหมือนหน้าเว็บ รพ. 100%"
+                    title="เปลี่ยนรูปแบบรายงาน โดยใช้ข้อมูลชุดเดิมรวมรายการปรับแก้ในเบราว์เซอร์"
                   >
-                    {officialView ? "🛠️ สลับเป็นโหมดจัดการ (CRUD)" : "📄 สลับเป็นมุมมองทางการ (เหมือนเว็บ รพ. เป๊ะๆ)"}
+                    {officialView ? "สลับเป็นโหมดจัดการ" : "สลับเป็นรูปแบบรายงานทางการ"}
                   </button>
                   <button className="btn btn-dark" onClick={() => window.print()}>
                     <Printer size={16} /> พิมพ์รายงาน (Print)
@@ -1554,31 +1300,10 @@ export default function Home() {
               </div>
 
               
-              {/* Tooltip & Helper Card to sync/patch hospital official website */}
-              <div className="no-print" style={{ marginBottom: "14px", padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "10px", fontSize: "13px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-                  <div>
-                    <strong style={{ color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span>💡 ต้องการให้หน้าเว็บจริงของ รพ. (choaironghospital.org) แสดงเวลาเหมือนกัน?</span>
-                    </strong>
-                    <div style={{ color: "#15803d", fontSize: "12px", marginTop: "3px" }}>
-                      คัดลอกสคริปต์นี้ไปวางใน Console (กด F12) บนหน้าเว็บของ รพ. เพื่อให้แถวที่ 19 เป็น <strong>23:54:00</strong> และแถวที่ 20 เป็น <strong>16:42:00</strong> ได้ทันที
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    style={{ fontSize: "12px", background: "#fff", borderColor: "#86efac", color: "#166534", whiteSpace: "nowrap" }}
-                    onClick={() => {
-                      const scriptCode = `document.querySelectorAll("table tbody tr").forEach(r=>{if(r.innerText.includes("2026-10-25")&&r.innerText.includes("เวรบ่าย")){r.children[5].innerText="23:54:00"}if(r.innerText.includes("2026-10-26")&&r.innerText.includes("เวรเช้า")){r.children[5].innerText="16:42:00"}});alert("แก้ไขเวลาแถวที่ 19 (23:54:00) และแถวที่ 20 (16:42:00) บนหน้าเว็บ รพ. เรียบร้อยแล้ว!");`;
-                      navigator.clipboard.writeText(scriptCode);
-                      notify("success", "คัดลอกสคริปต์แล้ว! เปิดแท็บหน้าเว็บ รพ. กด F12 -> Console -> วางแล้วกด Enter ได้ทันที");
-                    }}
-                    title="คัดลอกโค้ดสคริปต์สำหรับนำไปรันบนหน้าเว็บจริงของ รพ."
-                  >
-                    📋 คัดลอกโค้ดปรับแก้เว็บ รพ.
-                  </button>
-                </div>
+              <div className="panel local-report-notice">
+                <strong>รายงานนี้อาจมีข้อมูลปรับแก้ในเบราว์เซอร์</strong>
+                <p>การเพิ่ม แก้ไข ลบ และคืนค่า มีผลเฉพาะรายงานของเจ้าหน้าที่ที่เลือกในเบราว์เซอร์นี้ ไม่ได้แก้ฐานข้อมูลโรงพยาบาล มุมมองทางการเปลี่ยนเฉพาะรูปแบบเอกสาร</p>
+                <p>ข้อมูลปรับแก้รุ่นเก่าที่ไม่ระบุเจ้าของยังเก็บไว้ แต่ไม่นำมาแสดงเพื่อป้องกันข้อมูลปะปน</p>
               </div>
 
               {/* Dropdown เลือกเจ้าหน้าที่ (จนท.) */}
@@ -1615,6 +1340,7 @@ export default function Home() {
                       boxShadow: "0 1px 3px rgba(225, 29, 72, 0.1)",
                     }}
                   >
+                    <option value="" disabled>เลือกหรือเพิ่มบุคลากร</option>
                     {profilesList.map((p, idx) => (
                       <option key={p.udid || idx} value={p.udid}>
                         {p.name} {p.nid ? `(NID: ${p.nid})` : `(UDID: ${p.udid})`} {p.subdep ? `• ${p.subdep}` : ""}
@@ -1654,7 +1380,7 @@ export default function Home() {
                       type="button"
                       className="btn btn-primary"
                       style={{ minHeight: "36px", padding: "6px 14px", fontSize: "13px" }}
-                      onClick={handleOpenCreateModal}
+                      disabled={!storageReady || !profile.udid.trim() || busy === "records"} onClick={handleOpenCreateModal}
                     >
                       <Plus size={16} /> + เพิ่มแถวบันทึกเวลา (Create)
                     </button>
@@ -1663,15 +1389,15 @@ export default function Home() {
                     </span>
                   </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    {deletedRowKeys.length > 0 && (
+                    {deletedCount > 0 && (
                       <button
                         type="button"
                         className="btn btn-outline"
                         style={{ fontSize: "11.5px", padding: "4px 10px", minHeight: "30px" }}
                         onClick={handleRestoreDeleted}
-                        title="คืนค่ารายการที่เคยถูกลบทั้งหมด"
+                        title="คืนค่ารายการที่ซ่อนของเจ้าหน้าที่ที่เลือก"
                       >
-                        <RotateCcw size={13} /> คืนค่ารายการที่ลบ (${deletedRowKeys.length})
+                        <RotateCcw size={13} /> คืนค่ารายการที่ลบ ({deletedCount})
                       </button>
                     )}
                   </div>
@@ -1751,24 +1477,19 @@ export default function Home() {
                               <button className="btn btn-primary" style={{ fontSize: "12px", minHeight: "32px", padding: "4px 12px" }} onClick={() => go("check")}>
                                 <QrCode size={14} /> ไปลงเวลา
                               </button>
-                              <button className="btn btn-outline" style={{ fontSize: "12px", minHeight: "32px", padding: "4px 12px" }} onClick={() => selectProfile(PRESET_PROFILES.basree)}>
-                                <UserCheck size={14} /> ดูคุณบัสรี (3,171 รายการ)
-                              </button>
-                              <button className="btn btn-outline" style={{ fontSize: "12px", minHeight: "32px", padding: "4px 12px" }} onClick={() => selectProfile(PRESET_PROFILES.piyaha)}>
-                                <UserCheck size={14} /> ดูนายปิยะหะ (20 รายการ)
-                              </button>
+
                             </div>
                           </td>
                         </tr>
                       ) : (
                         reportRows.map((row, idx) => {
-                          const inKey = `${row.date}_${row.shift}_IN`;
-                          const outKey = `${row.date}_${row.shift}_OUT`;
+                          const inKey = `${row.id}_IN`;
+                          const outKey = `${row.id}_OUT`;
                           const isEditingIn = editingKey === inKey;
                           const isEditingOut = editingKey === outKey;
 
                           return (
-                            <tr key={idx}>
+                            <tr key={row.id}>
                               <td className="center">{idx + 1}</td>
                               <td>{row.date}</td>
                               <td>{row.cet_name}</td>
@@ -1790,9 +1511,7 @@ export default function Home() {
                                       className="icon-btn"
                                       style={{ width: "24px", height: "24px", padding: "0" }}
                                       onClick={() => {
-                                        if (editingValue) {
-                                          updateTimeOverride(row.date, row.shift, "IN", editingValue);
-                                        }
+                                        updateRowTime(row, "time_in", editingValue);
                                         setEditingKey(null);
                                       }}
                                     >
@@ -1834,9 +1553,7 @@ export default function Home() {
                                       className="icon-btn"
                                       style={{ width: "24px", height: "24px", padding: "0" }}
                                       onClick={() => {
-                                        if (editingValue) {
-                                          updateTimeOverride(row.date, row.shift, "OUT", editingValue);
-                                        }
+                                        updateRowTime(row, "time_out", editingValue);
                                         setEditingKey(null);
                                       }}
                                     >
@@ -1864,7 +1581,7 @@ export default function Home() {
                               <td className="center">{officialView ? (row.status_day !== "-" ? row.status_day : "") : row.status_day}</td>
                               <td>
                                 {officialView ? (row.note !== "-" ? row.note : "") : row.note}
-                                {!officialView && row.isCustom && <span className="badge-custom">สร้างเอง</span>}
+                                {row.isLocal && <span className="badge-custom">ปรับในเบราว์เซอร์</span>}
                               </td>
                               {!officialView && (
                               <td className="center no-print">
@@ -1928,7 +1645,7 @@ export default function Home() {
                   {Array.from({ length: firstDay }, (_, i) => <span className="calendar-cell blank" key={`b${i}`} />)}
                   {days.map((d) => {
                     const iso = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-                    const dayRecs = effectiveRecords.filter((r) => r.chk_date === iso);
+                    const dayRecs = records.filter((r) => r.chk_date === iso);
                     const current = d === today.getDate() && month.getMonth() === today.getMonth() && month.getFullYear() === today.getFullYear();
                     return (
                       <span key={d} className={`calendar-cell ${current ? "current" : ""}`}>
@@ -2022,6 +1739,8 @@ export default function Home() {
                   </select>
                 </label>
                 <div className="generated-code">
+                  {/* QR is generated as a data URL; optimization is unnecessary. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   {qrImage ? <img src={qrImage} alt={`QR Code ${qrKind}`} /> : <Loader2 className="spin" size={30} />}
                 </div>
                 <p>รหัส QR: <code>{qrKind}</code> ใช้สำหรับสแกนบันทึกเวลาปฏิบัติงานในระบบ YTime2</p>
@@ -2074,12 +1793,12 @@ export default function Home() {
 
                   <label>
                     ชื่อ–นามสกุล
-                    <input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} placeholder="เช่น คุณบัสรี เจ๊ะหามะ" />
+                    <input value={profile.name} onChange={(e) => updateProfileField("name", e.target.value)} placeholder="กรอกชื่อบุคลากร" />
                   </label>
 
                   <label>
                     รหัสประจำตัว / เลขบัตรประชาชน
-                    <input value={profile.nid} onChange={(e) => updateProfileField("nid", e.target.value)} placeholder="เช่น 1960500186031" />
+                    <input value={profile.nid} onChange={(e) => updateProfileField("nid", e.target.value)} placeholder="กรอกรหัสของคุณ" />
                   </label>
 
                   <label>
@@ -2104,7 +1823,7 @@ export default function Home() {
                             applyUdid(uid);
                           }
                         }}
-                        placeholder="เช่น e0209d15534ea0f4 หรือ 1960500122890"
+                        placeholder="กรอกรหัสของคุณ"
                         style={{ margin: 0 }}
                       />
                       <button
@@ -2128,14 +1847,18 @@ export default function Home() {
                     type="button"
                     style={{ marginTop: "16px" }}
                     onClick={() => {
-                      loadHistory(uid, profile);
-                      notify("success", `บันทึกข้อมูลและโหลดประวัติของ ${profile.name} เรียบร้อยแล้ว`);
+                      if (!uid.trim()) { notify("error", "กรุณาระบุ UDID ก่อนบันทึก"); return; }
+                      const next = { ...profile, name: profile.name.trim() || "บุคลากร", udid: uid.trim() };
+                      const updated = [...profilesList.filter((p) => p.udid !== next.udid && !(profile.udid && p.udid === profile.udid)), next];
+                      window.localStorage.setItem("ytime2_profiles_list", JSON.stringify(updated));
+                      setProfilesList(updated);
+                      selectProfile(next);
                     }}
                   >
                     <Check size={16} /> บันทึกข้อมูลและโหลดประวัติของ {profile.name}
                   </button>
 
-                  {!profile.isDefault && (
+                  {profile.udid && (
                     <button
                       type="button"
                       className="btn btn-outline full"
@@ -2198,6 +1921,7 @@ export default function Home() {
                     <button className="btn btn-outline" onClick={() => go("qrgen")}><QrCode size={17} />QR Generator</button>
                     <button className="btn btn-outline" onClick={() => go("map")}><MapPin size={17} />แผนที่ รพ.</button>
                   </div>
+                  <p className="subtext">Web Device ID: {deviceId || "กำลังโหลด…"}</p>
                   <Tip title="ความปลอดภัย" text="ข้อมูลบันทึกเวลาส่งตรงไปยังระบบเดิมของโรงพยาบาลเจาะไอร้อง ไม่มีการเก็บบันทึกรหัสผ่านในเบราว์เซอร์" />
                 </div>
               </div>
@@ -2205,6 +1929,23 @@ export default function Home() {
           )}
         </main>
       </div>
+
+      <dialog ref={crudDialog} className="crud-dialog no-print" aria-labelledby="crud-title" onCancel={() => setShowCrudModal(false)} onClose={() => setShowCrudModal(false)}>
+        <div className="modal-header">
+          <h3 id="crud-title">{crudMode === "create" ? "เพิ่มแถวรายงาน" : "แก้ไขแถวรายงาน"}</h3>
+          <button type="button" className="icon-btn" aria-label="ปิดหน้าต่าง" onClick={() => setShowCrudModal(false)}><X size={18} /></button>
+        </div>
+        <p>ของ {profile.name} — บันทึกเฉพาะเบราว์เซอร์นี้ ไม่เปลี่ยนข้อมูลโรงพยาบาล</p>
+        <form className="modal-form" onSubmit={handleSaveCrudForm}>
+          <label className="modal-field">วันที่<input required type="date" value={crudFormData.date} onChange={(e) => setCrudFormData({ ...crudFormData, date: e.target.value })} /></label>
+          <div className="modal-field"><label htmlFor="crud-shift">เวร</label><select id="crud-shift" value={crudFormData.shift} onChange={(e) => setCrudFormData({ ...crudFormData, shift: e.target.value as Shift })}>{Object.entries(shifts).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></div>
+          <label className="modal-field">เวลาเข้า<input type="time" step="1" value={crudFormData.time_in} onChange={(e) => setCrudFormData({ ...crudFormData, time_in: e.target.value })} /></label>
+          <label className="modal-field">เวลาออก<input type="time" step="1" value={crudFormData.time_out} onChange={(e) => setCrudFormData({ ...crudFormData, time_out: e.target.value })} /></label>
+          <label className="modal-field">สถานะวัน<input value={crudFormData.status_day} onChange={(e) => setCrudFormData({ ...crudFormData, status_day: e.target.value })} /></label>
+          <label className="modal-field">หมายเหตุ<input value={crudFormData.note} onChange={(e) => setCrudFormData({ ...crudFormData, note: e.target.value })} /></label>
+          <div className="modal-actions"><button type="button" className="btn btn-outline" onClick={() => setShowCrudModal(false)}>ยกเลิก</button><button className="btn btn-primary">บันทึกรายงานในเบราว์เซอร์</button></div>
+        </form>
+      </dialog>
 
       {showAddModal && (
         <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
@@ -2321,9 +2062,10 @@ export default function Home() {
                 </label>
                 <input
                   required
+                  aria-label="ชื่อบุคลากร"
                   value={newPersonName}
                   onChange={(e) => setNewPersonName(e.target.value)}
-                  placeholder="เช่น คุณนัสรี ดอเลาะ หรือ พว.สมศรี ใจดี"
+                  placeholder="กรอกชื่อบุคลากร"
                   autoFocus
                 />
               </div>
@@ -2334,9 +2076,10 @@ export default function Home() {
                 </label>
                 <input
                   required
+                  aria-label="รหัส UDID บุคลากร"
                   value={newPersonUdid}
                   onChange={(e) => setNewPersonUdid(e.target.value)}
-                  placeholder="เช่น e0209d15534ea0f4 หรือ 1960500123456"
+                  placeholder="กรอกรหัสของคุณ"
                 />
                 <span className="hint">
                   ระบบจะใช้ค่า UDID นี้ในการส่งบันทึกเวลาและโหลดประวัติ
@@ -2350,7 +2093,7 @@ export default function Home() {
                     <input
                       value={newPersonNid}
                       onChange={(e) => setNewPersonNid(e.target.value)}
-                      placeholder="เช่น 1960500123456 (ถ้าไม่ระบุ จะใช้รหัส UDID)"
+                      placeholder="กรอกรหัสของคุณ"
                     />
                   </div>
                   <div className="form-row">
