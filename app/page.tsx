@@ -319,6 +319,7 @@ export default function Home() {
   const [deletedRowKeys, setDeletedRowKeys] = useState<string[]>([]);
   const [rowMetaOverrides, setRowMetaOverrides] = useState<Record<string, { status_day?: string; note?: string; time_in?: string; time_out?: string }>>({});
   const [showCrudModal, setShowCrudModal] = useState(false);
+  const [officialView, setOfficialView] = useState(false);
   const [crudMode, setCrudMode] = useState<"create" | "edit">("create");
   const [crudFormData, setCrudFormData] = useState<{
     id?: string;
@@ -1529,7 +1530,15 @@ export default function Home() {
             <>
               <div className="report-actions">
                 <Heading icon={<FileSpreadsheet />} title="รายงานบันทึกการมาทำงาน" detail="Hostime v.1.0.3 - โรงพยาบาลเจาะไอร้อง" />
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={`btn ${officialView ? "btn-primary" : "btn-outline"}`}
+                    onClick={() => setOfficialView(!officialView)}
+                    title="สลับระหว่างโหมดแก้ไขข้อมูล กับโหมดมุมมองทางการที่เหมือนหน้าเว็บ รพ. 100%"
+                  >
+                    {officialView ? "🛠️ สลับเป็นโหมดจัดการ (CRUD)" : "📄 สลับเป็นมุมมองทางการ (เหมือนเว็บ รพ. เป๊ะๆ)"}
+                  </button>
                   <button className="btn btn-dark" onClick={() => window.print()}>
                     <Printer size={16} /> พิมพ์รายงาน (Print)
                   </button>
@@ -1610,6 +1619,7 @@ export default function Home() {
 
               <div className="panel report-panel">
                 {/* CRUD Control Toolbar */}
+                {!officialView && (
                 <div className="crud-toolbar no-print">
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                     <button
@@ -1638,10 +1648,13 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                <div className="report-title-area">
-                  <h2>บันทึกการมาทำงาน</h2>
-                  <div className="user-name">ของ {profile.name}</div>
-                  <div className="user-id">{profile.nid}</div>
+                )}
+                <div className="report-title-area" style={{ borderBottom: officialView ? "1px solid #dee2e6" : undefined, paddingBottom: officialView ? "14px" : undefined }}>
+                  <h2 style={{ fontSize: officialView ? "16px" : undefined, fontWeight: 700 }}>บันทึกการมาทำงาน</h2>
+                  <div className="user-name" style={{ fontSize: officialView ? "14px" : undefined, fontWeight: 700, margin: "4px 0" }}>
+                    ของ {profile.name.replace(/^คุณ/, "")}
+                  </div>
+                  <div className="user-id" style={{ fontSize: officialView ? "13px" : undefined, fontWeight: 700 }}>{profile.nid}</div>
                 </div>
 
                 <div className="report-meta-grid">
@@ -1649,14 +1662,16 @@ export default function Home() {
                     <div style={{ marginBottom: "6px" }}>
                       <strong>เดือน : </strong>
                       <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--pink-dark)" }}>{currentMonthKey}</span>
-                      <div style={{ display: "inline-flex", gap: "4px", marginLeft: "12px" }}>
-                        <button className="icon-btn" style={{ width: "26px", height: "26px" }} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
-                          <ChevronLeft size={14} />
-                        </button>
-                        <button className="icon-btn" style={{ width: "26px", height: "26px" }} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
+                      {!officialView && (
+                        <div className="inline-flex-nav" style={{ display: "inline-flex", gap: "4px", marginLeft: "12px" }}>
+                          <button className="icon-btn" style={{ width: "26px", height: "26px" }} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
+                            <ChevronLeft size={14} />
+                          </button>
+                          <button className="icon-btn" style={{ width: "26px", height: "26px" }} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <strong>แผนก : </strong>
@@ -1668,12 +1683,14 @@ export default function Home() {
                       <strong>ฝ่าย : </strong>
                       <span>{profile.subdep}</span>
                     </div>
+                    {!officialView && (
                     <div className="report-stats" style={{ marginTop: "8px", justifyContent: "flex-end" }}>
                       <span className="stat-pill">รวมทั้งหมด <strong>{reportRows.length}</strong> เวร</span>
                       <span className="stat-pill">เช้า <strong>{reportRows.filter((r) => r.shift === "working1").length}</strong></span>
                       <span className="stat-pill">บ่าย <strong>{reportRows.filter((r) => r.shift === "working2").length}</strong></span>
                       <span className="stat-pill">ดึก <strong>{reportRows.filter((r) => r.shift === "working3").length}</strong></span>
                     </div>
+                  )}
                   </div>
                 </div>
 
@@ -1689,7 +1706,7 @@ export default function Home() {
                         <th className="center" style={{ width: "105px" }}>เวลาออก</th>
                         <th className="center" style={{ width: "80px" }}>สถานะวัน</th>
                         <th>หมายเหตุ</th>
-                        <th className="center no-print" style={{ width: "90px" }}>จัดการ</th>
+                        {!officialView && <th className="center no-print" style={{ width: "90px" }}>จัดการ</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1729,7 +1746,9 @@ export default function Home() {
                               <td>{row.cet_name}</td>
                               <td>{row.cet_desc}</td>
                               <td className="center">
-                                {isEditingIn ? (
+                                {officialView ? (
+                                  row.time_in !== "-" ? row.time_in : ""
+                                ) : isEditingIn ? (
                                   <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                                     <input
                                       type="time"
@@ -1771,7 +1790,9 @@ export default function Home() {
                                 )}
                               </td>
                               <td className="center">
-                                {isEditingOut ? (
+                                {officialView ? (
+                                  row.time_out !== "-" ? row.time_out : ""
+                                ) : isEditingOut ? (
                                   <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
                                     <input
                                       type="time"
@@ -1812,11 +1833,12 @@ export default function Home() {
                                   </div>
                                 )}
                               </td>
-                              <td className="center">{row.status_day}</td>
+                              <td className="center">{officialView ? (row.status_day !== "-" ? row.status_day : "") : row.status_day}</td>
                               <td>
-                                {row.note}
-                                {row.isCustom && <span className="badge-custom">สร้างเอง</span>}
+                                {officialView ? (row.note !== "-" ? row.note : "") : row.note}
+                                {!officialView && row.isCustom && <span className="badge-custom">สร้างเอง</span>}
                               </td>
+                              {!officialView && (
                               <td className="center no-print">
                                 <div style={{ display: "inline-flex", gap: "4px", alignItems: "center", justifyContent: "center" }}>
                                   <button
@@ -1839,6 +1861,7 @@ export default function Home() {
                                   </button>
                                 </div>
                               </td>
+                              )}
                             </tr>
                           );
                         })
