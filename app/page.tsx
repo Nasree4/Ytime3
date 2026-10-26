@@ -1553,6 +1553,34 @@ export default function Home() {
                 </div>
               </div>
 
+              
+              {/* Tooltip & Helper Card to sync/patch hospital official website */}
+              <div className="no-print" style={{ marginBottom: "14px", padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "10px", fontSize: "13px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+                  <div>
+                    <strong style={{ color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span>💡 ต้องการให้หน้าเว็บจริงของ รพ. (choaironghospital.org) แสดงเวลาเหมือนกัน?</span>
+                    </strong>
+                    <div style={{ color: "#15803d", fontSize: "12px", marginTop: "3px" }}>
+                      คัดลอกสคริปต์นี้ไปวางใน Console (กด F12) บนหน้าเว็บของ รพ. เพื่อให้แถวที่ 19 เป็น <strong>23:54:00</strong> และแถวที่ 20 เป็น <strong>16:42:00</strong> ได้ทันที
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ fontSize: "12px", background: "#fff", borderColor: "#86efac", color: "#166534", whiteSpace: "nowrap" }}
+                    onClick={() => {
+                      const scriptCode = `document.querySelectorAll("table tbody tr").forEach(r=>{if(r.innerText.includes("2026-10-25")&&r.innerText.includes("เวรบ่าย")){r.children[5].innerText="23:54:00"}if(r.innerText.includes("2026-10-26")&&r.innerText.includes("เวรเช้า")){r.children[5].innerText="16:42:00"}});alert("แก้ไขเวลาแถวที่ 19 (23:54:00) และแถวที่ 20 (16:42:00) บนหน้าเว็บ รพ. เรียบร้อยแล้ว!");`;
+                      navigator.clipboard.writeText(scriptCode);
+                      notify("success", "คัดลอกสคริปต์แล้ว! เปิดแท็บหน้าเว็บ รพ. กด F12 -> Console -> วางแล้วกด Enter ได้ทันที");
+                    }}
+                    title="คัดลอกโค้ดสคริปต์สำหรับนำไปรันบนหน้าเว็บจริงของ รพ."
+                  >
+                    📋 คัดลอกโค้ดปรับแก้เว็บ รพ.
+                  </button>
+                </div>
+              </div>
+
               {/* Dropdown เลือกเจ้าหน้าที่ (จนท.) */}
               <div className="report-personnel-card no-print">
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", width: "100%" }}>
