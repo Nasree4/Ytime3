@@ -93,6 +93,24 @@ function bangkokNow() {
 }
 
 const dateLabel = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "long", year: "numeric" });
+const thaiShortDate = new Intl.DateTimeFormat("th-TH-u-nu-thai", { day: "numeric", month: "short", year: "2-digit" });
+const thaiDigits = (value: string) => value.replace(/\d/g, (d) => "๐๑๒๓๔๕๖๗๘๙"[Number(d)]);
+const formatThaiDate = (iso: string) => (iso ? thaiShortDate.format(new Date(`${iso}T12:00:00`)) : "");
+
+type AppealSheet = {
+  position: string; unit: string; round: string;
+  coworkerName: string; coworkerPosition: string;
+  headName: string; headPosition: string; headUnit: string;
+  directorName: string; directorTitle: string; directorTitle2: string;
+};
+const EMPTY_APPEAL_SHEET: AppealSheet = {
+  position: "", unit: "", round: "1",
+  coworkerName: "", coworkerPosition: "",
+  headName: "", headPosition: "", headUnit: "",
+  directorName: "", directorTitle: "ผู้อำนวยการโรงพยาบาลเจาะไอร้อง", directorTitle2: "",
+};
+// Signatories and position rarely change, so they are remembered per browser; dates and details are not.
+const APPEAL_SHEET_STORAGE = "ytime2_appeal_sheet";
 const monthLabel = new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" });
 const items: { id: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "home", label: "ภาพรวม", icon: LayoutDashboard },
@@ -254,6 +272,32 @@ export default function Home() {
   const [lastCheck, setLastCheck] = useState<{ status: "confirmed" | "unknown"; message: string; date: string; time: string; shift: string; udid: string } | null>(null);
   const [remindersOn, setRemindersOn] = useState(false);
   const notifiedReminders = useRef(new Set<string>());
+  const [appealSheet, setAppealSheet] = useState<AppealSheet>(EMPTY_APPEAL_SHEET);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(APPEAL_SHEET_STORAGE) || "null");
+      // One-time hydration from browser storage after SSR; no render feedback loop.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved && typeof saved === "object") setAppealSheet({ ...EMPTY_APPEAL_SHEET, ...saved });
+    } catch {
+      /* Defaults are fine without storage */
+    }
+  }, []);
+
+  const updateAppealSheet = (field: keyof AppealSheet, value: string) => {
+    setAppealSheet((current) => {
+      const next = { ...current, [field]: value };
+      try {
+        const remembered: Partial<AppealSheet> = { ...next };
+        delete remembered.round;
+        window.localStorage.setItem(APPEAL_SHEET_STORAGE, JSON.stringify(remembered));
+      } catch {
+        /* Storage unavailable */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(bangkokNow()), 30000);
@@ -938,7 +982,7 @@ export default function Home() {
   const deletedCount = deletedRowKeys.filter((key) => ownsKey(profile, key)).length;
 
   const renderIncompleteShifts = () => (
-    <div className="panel" style={{ marginBottom: "16px", padding: "14px 16px", borderColor: incompleteShifts.length ? "#fcd34d" : undefined, background: incompleteShifts.length ? "#fffbeb" : undefined }}>
+    <div className="panel no-print" style={{ marginBottom: "16px", padding: "14px 16px", borderColor: incompleteShifts.length ? "#fcd34d" : undefined, background: incompleteShifts.length ? "#fffbeb" : undefined }}>
       <strong style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" }}>
         <FileText size={16} /> รายการลงเวลาไม่ครบ (31 วันล่าสุด)
       </strong>
@@ -1850,7 +1894,7 @@ export default function Home() {
             <>
               <Heading icon={<FileText />} title="ส่งคำร้อง" detail="แจ้งเรื่องและแนบเอกสารไปยังระบบ รพ.เจาะไอร้อง" />
               {renderIncompleteShifts()}
-              <div className="two-col">
+              <div className="two-col no-print">
                 <form className="panel form" onSubmit={appeal}>
                   <h2>รายละเอียดคำร้อง</h2>
                   <p className="subtext">ข้อมูลจะส่งไปยังเซิร์ฟเวอร์เดิมของโรงพยาบาล</p>
@@ -1872,6 +1916,98 @@ export default function Home() {
                 </form>
                 <Tip title="ตรวจสอบก่อนส่ง" text="เมื่อส่งคำร้องแล้ว ระบบจะบันทึกข้อมูลในเซิร์ฟเวอร์ YTime2 รพ.เจาะไอร้อง โปรดตรวจสอบความถูกต้อง" />
               </div>
+
+              <section className="panel form no-print appeal-sheet-fields">
+                <div className="section-head">
+                  <div>
+                    <h2>ใบอุทธรณ์ในการปฏิบัติงาน (สำหรับพิมพ์)</h2>
+                    <p>เรื่อง วันที่ และรายละเอียดใช้ข้อมูลเดียวกับคำร้องด้านบน ตำแหน่งและผู้ลงนามจะจำไว้ในเบราว์เซอร์นี้</p>
+                  </div>
+                  <button type="button" className="btn btn-primary" onClick={() => window.print()}>
+                    <Printer size={16} /> พิมพ์ใบอุทธรณ์
+                  </button>
+                </div>
+                <div className="form-row">
+                  <label>ตำแหน่ง (ผู้อุทธรณ์)<input value={appealSheet.position} onChange={(e) => updateAppealSheet("position", e.target.value)} placeholder="เช่น จพ.สาธารณสุขชำนาญงาน" /></label>
+                  <label>หน่วยงาน<input value={appealSheet.unit} onChange={(e) => updateAppealSheet("unit", e.target.value)} placeholder={profile.subdep || "เช่น ER"} /></label>
+                  <label>ครั้งที่<input inputMode="numeric" value={appealSheet.round} onChange={(e) => updateAppealSheet("round", e.target.value)} /></label>
+                </div>
+                <div className="form-row">
+                  <label>ผู้ร่วมงาน (ชื่อ)<input value={appealSheet.coworkerName} onChange={(e) => updateAppealSheet("coworkerName", e.target.value)} /></label>
+                  <label>ตำแหน่งผู้ร่วมงาน<input value={appealSheet.coworkerPosition} onChange={(e) => updateAppealSheet("coworkerPosition", e.target.value)} /></label>
+                </div>
+                <div className="form-row">
+                  <label>หัวหน้างาน (ชื่อ)<input value={appealSheet.headName} onChange={(e) => updateAppealSheet("headName", e.target.value)} /></label>
+                  <label>ตำแหน่งหัวหน้างาน<input value={appealSheet.headPosition} onChange={(e) => updateAppealSheet("headPosition", e.target.value)} /></label>
+                  <label>หัวหน้า (งาน)<input value={appealSheet.headUnit} onChange={(e) => updateAppealSheet("headUnit", e.target.value)} placeholder="เช่น งานอุบัติเหตุฉุกเฉินและนิติเวช" /></label>
+                </div>
+                <div className="form-row">
+                  <label>ผู้อำนวยการ (ชื่อ)<input value={appealSheet.directorName} onChange={(e) => updateAppealSheet("directorName", e.target.value)} /></label>
+                  <label>ตำแหน่ง บรรทัดที่ 1<input value={appealSheet.directorTitle} onChange={(e) => updateAppealSheet("directorTitle", e.target.value)} /></label>
+                  <label>ตำแหน่ง บรรทัดที่ 2 (ถ้ามี)<input value={appealSheet.directorTitle2} onChange={(e) => updateAppealSheet("directorTitle2", e.target.value)} /></label>
+                </div>
+              </section>
+
+              <article className="appeal-sheet" aria-label="ตัวอย่างใบอุทธรณ์ก่อนพิมพ์">
+                <h1>ใบอุทธรณ์ในการปฏิบัติงาน</h1>
+                <ol className="appeal-items">
+                  <li>
+                    <span className="appeal-num">๑.</span>
+                    <div>
+                      <b>ข้าพเจ้า</b><span className="appeal-value">{profile.name}</span>
+                      <b>ตำแหน่ง</b><span className="appeal-value">{appealSheet.position}</span>
+                      <br />
+                      <b>หน่วยงาน</b><span className="appeal-value">{appealSheet.unit || profile.subdep}</span>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="appeal-num">๒.</span>
+                    <div><b>เรื่องที่อุทธรณ์</b><span className="appeal-value">{subject}</span></div>
+                  </li>
+                  <li>
+                    <span className="appeal-num">๓.</span>
+                    <div>
+                      <b>ตั้งแต่วันที่</b><span className="appeal-value">{formatThaiDate(from)}</span>
+                      <b>ถึงวันที่</b><span className="appeal-value">{formatThaiDate(to || from)}</span>
+                      <b>ครั้งที่</b><span className="appeal-value">{thaiDigits(appealSheet.round)}</span>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="appeal-num">๔.</span>
+                    <div><b>รายละเอียด</b><span className="appeal-value appeal-detail">{detail}</span></div>
+                  </li>
+                </ol>
+
+                <div className="appeal-signs">
+                  <div className="appeal-sign">
+                    <span className="appeal-line" />
+                    <span>{profile.name}</span>
+                    <span>{appealSheet.position}</span>
+                    <b>ผู้อุทธรณ์</b>
+                  </div>
+                  <div className="appeal-sign">
+                    <span className="appeal-line" />
+                    <span>{appealSheet.coworkerName}</span>
+                    <span>{appealSheet.coworkerPosition}</span>
+                    <b>ผู้ร่วมงาน</b>
+                  </div>
+                </div>
+
+                <div className="appeal-sign appeal-sign-center">
+                  <span className="appeal-line" />
+                  <span>{appealSheet.headName}</span>
+                  <span>{appealSheet.headPosition}</span>
+                  <b>หัวหน้า {appealSheet.headUnit}</b>
+                </div>
+
+                <p className="appeal-ack">รับทราบ</p>
+
+                <div className="appeal-sign appeal-sign-center appeal-director">
+                  <span>({appealSheet.directorName || " ".repeat(30)})</span>
+                  <b>{appealSheet.directorTitle}</b>
+                  {appealSheet.directorTitle2 && <b>{appealSheet.directorTitle2}</b>}
+                </div>
+              </article>
             </>
           )}
 
